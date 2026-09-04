@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment files — KHÔNG bao giờ commit
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.js.map
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp / uploads
+tmp/
+temp/
+uploads/
+
+# Python cache
+*.egg-info/
+.pytest_cache/
+
+# Docker volumes (nếu mount local)
+postgres_data/
+redis_data/
+minio_data/
+
+# Keys / secrets
+*.pem
+*.key
+*.p12

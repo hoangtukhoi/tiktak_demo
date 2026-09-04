@@ -1,0 +1,13 @@
+const express = require('express');
+const router = express.Router();
+const videoController = require('../controllers/video.controller');
+const { authenticate, optionalAuth } = require('../middlewares/auth.middleware');
+router.post('/', authenticate, videoController.createVideo);
+router.get('/search', videoController.searchVideos);
+router.get('/:id', optionalAuth, videoController.getVideo);
+router.patch('/:id', authenticate, videoController.updateVideo);
+router.delete('/:id', authenticate, videoController.deleteVideo);
+router.post('/:id/like', authenticate, videoController.likeVideo);
+router.post('/:id/view', videoController.recordView);
+router.patch('/:id/urls', videoController.updateVideoUrls);
+module.exports = router;

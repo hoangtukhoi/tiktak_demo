@@ -1,0 +1,10 @@
+const express = require('express');
+const router = express.Router();
+const commentController = require('../controllers/comment.controller');
+const { authenticate } = require('../middlewares/auth.middleware');
+router.get('/video/:videoId', commentController.getComments);
+router.get('/:id/replies', commentController.getReplies);
+router.post('/', authenticate, commentController.createComment);
+router.delete('/:id', authenticate, commentController.deleteComment);
+router.post('/:id/like', authenticate, commentController.likeComment);
+module.exports = router;

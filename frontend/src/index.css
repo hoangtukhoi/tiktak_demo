@@ -1,0 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+body { background: #0a0a0a; color: white; margin: 0; overflow-x: hidden; }
+
+.feed-container { height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
+.feed-container::-webkit-scrollbar { display: none; }
+.feed-item { height: 100dvh; scroll-snap-align: start; position: relative; overflow: hidden; }
+
+.glass { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08); }
+.gradient-text { background: linear-gradient(135deg, #7c3aed, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.gradient-bg { background: linear-gradient(135deg, #7c3aed, #ec4899); }
