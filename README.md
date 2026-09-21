@@ -1,234 +1,218 @@
-# 🎬 TikTak
+# TikTak
 
-> Nền tảng chia sẻ video ngắn — Clone TikTok / Reels / YouTube Shorts  
-> Tích hợp AI dịch & lồng tiếng tự động (như Meta AI Dubbing) và hệ thống gợi ý nội dung
+Nền tảng chia sẻ video ngắn có tích hợp dịch và lồng tiếng tự động bằng AI.
+Đồ án môn học, gồm ba phần: backend Node.js, frontend React và một AI service
+viết bằng Python.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white"/>
-  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black"/>
-  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socketdotio&logoColor=white"/>
-</p>
+## Tính năng
 
----
+**Người dùng**
 
-## ✨ Tính năng chính
+- Feed dọc dạng snap-scroll, phát HLS, tải thêm theo con trỏ
+- Hai feed: "Dành cho bạn" xếp hạng theo tương tác và độ mới, "Đang theo dõi"
+- Upload video, theo dõi tiến trình transcode theo thời gian thực
+- Like, bình luận một cấp trả lời, chia sẻ, theo dõi người dùng
+- Tìm kiếm video và người dùng, hashtag thịnh hành
+- Thông báo realtime qua Socket.IO
+- Báo cáo video vi phạm
 
-### 📱 Người dùng
-- **Feed video ngắn** — Cuộn dọc snap-scroll như TikTok, phát HLS tự động
-- **For You / Following** — Feed cá nhân hoá và feed từ người theo dõi
-- **Tương tác** — Like, comment, reply, share, follow/unfollow
-- **Upload video** — Kéo thả, validate, theo dõi tiến trình transcode real-time (SSE)
-- **Tìm kiếm** — Tìm video, người dùng, hashtag; trending hashtags
-- **Thông báo real-time** — Socket.IO cho like, comment, follow, dubbing done
+**Dịch và lồng tiếng**
 
-### 🤖 AI Dịch & Lồng tiếng (Điểm nhấn)
-- **Speech-to-Text** (Whisper) — Trích xuất transcript + timestamp từ audio gốc
-- **Dịch thuật** (SeamlessM4T) — Dịch transcript sang 10+ ngôn ngữ
-- **Text-to-Speech / Voice Cloning** — Tổng hợp giọng nói ngôn ngữ đích
-- **Đồng bộ thời lượng** — Khớp audio dịch với khung hình gốc
-- **Lip-sync** (Wav2Lip, optional) — Đồng bộ chuyển động môi
-- Người xem chọn **ngôn ngữ phụ đề / lồng tiếng** ngay trên player
-- Xử lý **bất đồng bộ** qua BullMQ queue, hiển thị trạng thái tiến trình
+- Nhận dạng lời thoại kèm mốc thời gian bằng Whisper
+- Dịch từng segment sang 10 ngôn ngữ bằng NLLB-200
+- Tổng hợp giọng nói ngôn ngữ đích, tự co giãn tốc độ đọc để khớp khung hình
+- Sinh phụ đề VTT cho cả ngôn ngữ gốc và ngôn ngữ đích
+- Người xem chọn ngôn ngữ ngay trên player
+- Kết quả được cache theo cặp video và ngôn ngữ, không xử lý lại
 
-### 🛡️ Admin Panel
-- Quản lý người dùng: khoá/mở tài khoản, xác thực
-- Kiểm duyệt video: duyệt/gỡ, xử lý report
-- Dashboard thống kê: users, videos, lượt xem
-- Audit logs
+**Quản trị**
 
----
+- Dashboard số liệu người dùng, video, lượt xem, báo cáo chờ xử lý
+- Hàng đợi kiểm duyệt, tự động gắn cờ video khi đủ 3 báo cáo
+- Khoá và mở khoá tài khoản, xác thực tài khoản
+- Nhật ký thao tác của admin
 
-## 🏗️ Kiến trúc & Công nghệ
+Chi tiết hai luồng xử lý nền: xem [docs/PIPELINE.md](docs/PIPELINE.md).
 
-### Backend — `backend/`
+## Công nghệ
 
-| Công nghệ | Vai trò |
+| Thành phần | Công nghệ |
 |---|---|
-| **Node.js + Express** | HTTP server, REST API, MVC pattern |
-| **MongoDB + Mongoose** | Database chính (users, videos, comments, social graph) |
-| **Redis + BullMQ** | Cache + Job queue cho transcode & AI dubbing |
-| **Socket.IO** | Real-time notifications |
-| **Passport.js + JWT** | Authentication (local + Google OAuth) |
-| **FFmpeg (fluent-ffmpeg)** | Transcode video → HLS (360p/720p/1080p) + thumbnail |
-| **MinIO / AWS S3** | Object storage cho video, audio, thumbnail |
-| **Joi** | Validation |
-| **Winston** | Logging |
+| Backend | Node.js, Express, MongoDB, Mongoose |
+| Hàng đợi | Redis, BullMQ |
+| Realtime | Socket.IO, Server-Sent Events |
+| Xác thực | JWT với refresh token xoay vòng, Passport, Google OAuth |
+| Xử lý media | FFmpeg qua fluent-ffmpeg |
+| Lưu trữ | MinIO hoặc AWS S3 |
+| Frontend | React 18, Vite, Zustand, React Router, Tailwind CSS, HLS.js |
+| AI service | Python, FastAPI, faster-whisper, NLLB-200, edge-tts |
 
-**Cấu trúc MVC:**
+## Cấu trúc thư mục
+
 ```
-backend/src/
-├── config/          # database, redis, s3, passport
-├── models/          # User, Video, Comment, Like, Follow,
-│                    # Notification, AudioTrack, Subtitle
-├── controllers/     # auth, user, video, comment, feed,
-│                    # notification, dubbing, admin
-├── routes/          # Express routers
-├── services/        # Business logic
-│   └── ai/          # speechToText, translation, tts, dubbingPipeline
-├── jobs/            # BullMQ workers: transcode + dubbing
-├── middlewares/     # auth, upload, error, validate, rateLimit
-├── validators/      # Joi schemas
-├── sockets/         # Socket.IO notification gateway
-└── utils/           # logger, apiResponse, constants
-```
-
-### Frontend — `frontend/`
-
-| Công nghệ | Vai trò |
-|---|---|
-| **React 18 + Vite** | UI framework, fast dev server |
-| **Zustand** | State management (auth, video prefs, notifications) |
-| **React Router v6** | Client-side routing |
-| **HLS.js** | Phát video HLS trên trình duyệt |
-| **Framer Motion** | Animations |
-| **Tailwind CSS** | Styling — Dark theme, glassmorphism |
-| **Axios** | HTTP client với auto token refresh |
-| **Socket.IO Client** | Real-time notifications |
-| **React Hook Form** | Form management |
-| **react-hot-toast** | Toast notifications |
-
-**Cấu trúc:**
-```
-frontend/src/
-├── api/             # axiosClient + auth/video/dubbing/notification APIs
-├── components/
-│   ├── common/      # Button, Modal, Spinner, Avatar
-│   ├── layout/      # Header, Sidebar, BottomNav
-│   ├── video/       # VideoCard, VideoPlayer, ActionButtons, VideoUploader
-│   ├── comment/     # CommentList, CommentItem, CommentInput
-│   └── dubbing/     # LanguageSelector, DubbingStatusBadge
-├── pages/           # Home, Login, Register, Profile, Upload,
-│                    # VideoDetail, Search, Admin
-├── hooks/           # useAuth, useVideoPlayer, useInfiniteScroll
-├── store/slices/    # authSlice, videoSlice, notificationSlice
-├── routes/          # AppRouter, PrivateRoute
-├── services/        # socket.service.js
-└── utils/           # format.js, constants.js
+tiktak_demo/
+├── backend/            API server và worker
+│   └── src/
+│       ├── config/         env, database, redis, s3, passport
+│       ├── models/         User, Video, Comment, Like, Follow,
+│       │                   Notification, AudioTrack, Subtitle,
+│       │                   Report, AuditLog
+│       ├── controllers/    Điều phối request và response
+│       ├── services/       Logic nghiệp vụ
+│       │   └── ai/         aiClient, stt, translation, tts, dubbingPipeline
+│       ├── jobs/           Worker BullMQ: transcode và dubbing
+│       ├── routes/         Express router
+│       ├── middlewares/    auth, upload, validate, rateLimit, error
+│       ├── validators/     Joi schema
+│       ├── sockets/        Socket.IO gateway
+│       ├── scripts/        seed dữ liệu mẫu
+│       ├── app.js          Khởi tạo Express
+│       ├── server.js       API server, chạy kèm worker
+│       └── worker.js       Worker chạy tiến trình riêng
+├── frontend/           React + Vite
+│   └── src/
+│       ├── api/            axiosClient và các module gọi API
+│       ├── components/     common, layout, video, comment, dubbing
+│       ├── pages/          Home, Login, Register, AuthCallback, Profile,
+│       │                   Upload, VideoDetail, Search, Admin
+│       ├── hooks/          useAuth, useVideoPlayer, useInfiniteScroll
+│       ├── store/slices/   auth, video, notification
+│       └── services/       socket.service
+├── ai-service/         FastAPI: /transcribe, /translate, /tts
+├── docs/PIPELINE.md    Mô tả chi tiết pipeline
+├── docker-compose.yml  MongoDB, Redis, MinIO, AI service
+└── plan.md             Kế hoạch ban đầu của nhóm
 ```
 
-### AI Service — Python + FastAPI *(planned)*
-
-| Model | Vai trò |
-|---|---|
-| **Whisper large-v3** | Speech-to-Text (STT) |
-| **SeamlessM4T v2** | Dịch thuật đa ngôn ngữ |
-| **Coqui TTS / ElevenLabs** | Text-to-Speech + Voice Cloning |
-| **Wav2Lip** | Lip-sync (optional) |
-
----
-
-## 🚀 Khởi động
+## Chạy dự án
 
 ### Yêu cầu
-- Node.js >= 18
-- MongoDB (local hoặc Atlas)
-- Redis
-- FFmpeg
-- MinIO (hoặc AWS S3)
 
-### 1. Clone & cài dependencies
+- Node.js 18 trở lên
+- Docker và Docker Compose, hoặc tự cài MongoDB, Redis, MinIO
+- FFmpeg trong PATH
+- Python 3.11 nếu chạy AI service ngoài Docker
 
-```bash
-git clone https://github.com/hoangtukhoi/tiktak_demo.git
-cd tiktak_demo
-
-# Backend
-cd backend
-npm install
-cp .env.example .env
-# Sửa .env với MongoDB URI, JWT secret, ...
-
-# Frontend
-cd ../frontend
-npm install
-```
-
-### 2. Cấu hình `.env`
-
-```env
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/tiktak
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=your_secret_here
-JWT_REFRESH_SECRET=your_refresh_secret_here
-FRONTEND_URL=http://localhost:3000
-S3_ENDPOINT=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin123
-```
-
-### 3. Chạy
+### 1. Hạ tầng
 
 ```bash
-# Terminal 1 — Backend API
+docker compose up -d mongo redis minio minio-init
+```
+
+Lệnh này tạo sẵn ba bucket `tiktak-videos`, `tiktak-thumbnails`,
+`tiktak-audio` và mở quyền đọc công khai cho chúng.
+
+### 2. Backend
+
+```bash
 cd backend
+npm install
+cp .env.example .env     # sửa JWT secret trước khi dùng thật
+npm run seed             # tạo tài khoản và video mẫu, không bắt buộc
 npm run dev
+```
 
-# Terminal 2 — Frontend
+Muốn tách worker khỏi API server thì đặt `RUN_WORKERS_IN_API=false` trong
+`.env` rồi mở thêm một terminal chạy `npm run worker`.
+
+### 3. Frontend
+
+```bash
 cd frontend
+npm install
 npm run dev
-
-# (Optional) Terminal 3 — BullMQ Worker riêng
-cd backend
-npm run worker
 ```
 
-### URLs
+### 4. AI service
 
-| Service | URL |
+```bash
+docker compose up -d ai-service
+```
+
+Hoặc chạy trực tiếp, xem [ai-service/README.md](ai-service/README.md).
+Lần đầu khởi động sẽ tải model về, mất vài phút.
+
+Không có AI service thì upload, feed và tương tác vẫn chạy bình thường,
+chỉ riêng yêu cầu lồng tiếng sẽ báo lỗi.
+
+### Địa chỉ
+
+| Thành phần | URL |
 |---|---|
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:5000/api |
 | Health check | http://localhost:5000/health |
+| MinIO console | http://localhost:9001 |
+| AI service docs | http://localhost:8002/docs |
 
----
+Tài khoản admin sau khi chạy seed: `admin@tiktak.local` / `admin123`.
 
-## 📋 API Routes
+## API
+
+Mọi phản hồi có dạng `{ success, message, data }`.
+
+**Xác thực**
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
 | POST | `/api/auth/register` | Đăng ký |
 | POST | `/api/auth/login` | Đăng nhập |
-| POST | `/api/auth/refresh` | Refresh token |
-| GET | `/api/auth/me` | Thông tin user hiện tại |
-| GET | `/api/feed/for-you` | Feed "Cho bạn" |
-| GET | `/api/feed/following` | Feed đang theo dõi |
-| POST | `/api/videos` | Tạo video mới |
-| POST | `/api/videos/:id/like` | Like/unlike video |
-| POST | `/api/dubbing/request` | Yêu cầu dịch lồng tiếng |
-| GET | `/api/dubbing/:trackId/status` | Trạng thái dubbing |
-| GET | `/api/dubbing/languages` | Danh sách ngôn ngữ hỗ trợ |
+| POST | `/api/auth/refresh` | Cấp lại access token |
+| POST | `/api/auth/logout` | Thu hồi refresh token |
+| GET | `/api/auth/me` | Thông tin tài khoản hiện tại |
+| GET | `/api/auth/google` | Đăng nhập Google, chỉ bật khi có client ID |
 
----
+**Video và feed**
 
-## 🗺️ Roadmap
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/upload` | Tải file video lên, trả về `videoId` và `jobId` |
+| GET | `/api/upload/:jobId/progress` | SSE tiến trình transcode |
+| GET | `/api/feed/for-you` | Feed gợi ý, phân trang bằng cursor |
+| GET | `/api/feed/following` | Feed người đang theo dõi |
+| GET | `/api/videos/:id` | Chi tiết video |
+| POST | `/api/videos/:id/like` | Thích hoặc bỏ thích |
+| POST | `/api/videos/:id/view` | Ghi nhận lượt xem và thời gian xem |
+| POST | `/api/videos/:id/report` | Báo cáo vi phạm |
+| GET | `/api/videos/search` | Tìm kiếm video |
+| GET | `/api/videos/hashtags/trending` | Hashtag thịnh hành |
 
-- [x] Auth (đăng ký/đăng nhập/Google OAuth/JWT refresh)
-- [x] Upload video + Transcode HLS (360p/720p/1080p)
-- [x] Feed + Like/Comment/Follow
-- [x] Thông báo real-time (Socket.IO)
-- [x] Pipeline AI dịch & lồng tiếng (STT → MT → TTS)
-- [x] Admin panel (quản lý users/videos/moderation)
-- [ ] AI Service (Python FastAPI) — Whisper + SeamlessM4T
-- [ ] Recommendation engine (Qdrant vector search)
-- [ ] CDN + HLS streaming tối ưu
-- [ ] Mobile app (React Native)
+**Dịch và lồng tiếng**
 
----
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/dubbing/request` | Yêu cầu tạo bản lồng tiếng |
+| GET | `/api/dubbing/:trackId/status` | Trạng thái và phần trăm xử lý |
+| GET | `/api/dubbing/video/:videoId` | Danh sách audio track và phụ đề |
+| GET | `/api/dubbing/languages` | Ngôn ngữ được hỗ trợ |
+| GET | `/api/dubbing/health` | Kiểm tra AI service |
 
-## 📁 Cấu trúc project
+**Người dùng, bình luận, quản trị**
 
-```
-tiktak_demo/
-├── backend/          # Node.js + Express API
-├── frontend/         # React + Vite
-├── plan.md           # Kế hoạch chi tiết
-└── README.md
-```
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/users/:username` | Hồ sơ kèm tổng lượt thích |
+| POST | `/api/users/:username/follow` | Theo dõi hoặc bỏ theo dõi |
+| GET | `/api/comments/video/:videoId` | Bình luận gốc, phân trang cursor |
+| POST | `/api/comments` | Đăng bình luận hoặc trả lời |
+| GET | `/api/admin/stats` | Số liệu tổng quan |
+| GET | `/api/admin/videos/flagged` | Hàng đợi kiểm duyệt |
+| GET | `/api/admin/audit-logs` | Nhật ký thao tác |
 
----
+## Tiến độ
 
-*Dự án được phát triển với mục đích học tập và demo.*
+- [x] Xác thực, refresh token xoay vòng, Google OAuth
+- [x] Upload, transcode HLS nhiều mức chất lượng, thumbnail
+- [x] Feed, like, bình luận, follow, thông báo realtime
+- [x] Pipeline dịch và lồng tiếng đầy đủ, có cache và báo tiến trình
+- [x] AI service FastAPI: Whisper, NLLB-200, edge-tts
+- [x] Trang quản trị: số liệu, kiểm duyệt, nhật ký thao tác
+- [ ] Voice cloning giữ đặc trưng giọng gốc
+- [ ] Lip-sync bằng Wav2Lip
+- [ ] Gợi ý nội dung bằng vector search
+- [ ] CDN cho HLS
+- [ ] Ứng dụng di động
+
+## Ghi chú
+
+Dự án phục vụ mục đích học tập.

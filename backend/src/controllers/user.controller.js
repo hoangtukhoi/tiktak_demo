@@ -1,22 +1,44 @@
-const User = require('../models/User');
-const { success, error } = require('../utils/apiResponse');
+const userService = require('../services/user.service');
+const videoService = require('../services/video.service');
+const { success } = require('../utils/apiResponse');
+
 exports.getProfile = async (req, res) => {
-  const user = await User.findOne({ username: req.params.username });
-  if (!user) return error(res, 'User not found', 404);
-  success(res, user);
+  success(res, await userService.getProfile(req.params.username, req.user?._id));
 };
+
 exports.updateProfile = async (req, res) => {
-  const user = await User.findByIdAndUpdate(req.user._id, req.body, { new: true });
-  success(res, user);
+  success(res, await userService.updateProfile(req.user._id, req.body), 200, 'Đã cập nhật hồ sơ');
 };
+
 exports.deleteAccount = async (req, res) => {
-  await User.findByIdAndDelete(req.user._id);
-  success(res, null, 200, 'Account deleted');
+  await userService.deleteAccount(req.user._id);
+  success(res, null, 200, 'Đã xoá tài khoản');
 };
-exports.getUserVideos = async (req, res) => {
-  success(res, []);
-};
+
 exports.searchUsers = async (req, res) => {
-  const users = await User.find({ username: new RegExp(req.query.q, 'i') }).limit(10);
-  success(res, users);
+  success(res, await userService.searchUsers(req.query.q, Number(req.query.limit) || 10));
+};
+
+exports.getUserVideos = async (req, res) => {
+  const profile = await userService.getProfile(req.params.username, req.user?._id);
+  success(
+    res,
+    await videoService.getUserVideos(profile._id, {
+      cursor: req.query.cursor,
+      limit: req.query.limit,
+      includePrivate: profile.isSelf,
+    })
+  );
+};
+
+exports.toggleFollow = async (req, res) => {
+  success(res, await userService.toggleFollow(req.user._id, req.params.username));
+};
+
+exports.getFollowers = async (req, res) => {
+  success(res, await userService.getFollowers(req.params.username, req.query));
+};
+
+exports.getFollowing = async (req, res) => {
+  success(res, await userService.getFollowing(req.params.username, req.query));
 };

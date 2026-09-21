@@ -1,19 +1,27 @@
 const multer = require('multer');
-const { MAX_VIDEO_SIZE_MB } = require('../utils/constants');
+const { MAX_VIDEO_SIZE_MB, MAX_IMAGE_SIZE_MB } = require('../utils/constants');
+
+const ALLOWED_VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
+const ALLOWED_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp'];
+
 const storage = multer.memoryStorage();
-exports.videoUpload = multer({
+
+const videoUpload = multer({
   storage,
-  limits: { fileSize: MAX_VIDEO_SIZE_MB * 1024 * 1024 },
+  limits: { fileSize: MAX_VIDEO_SIZE_MB * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) cb(null, true);
-    else cb(new Error('Chỉ chấp nhận video'), false);
-  }
+    if (ALLOWED_VIDEO_MIME.includes(file.mimetype)) return cb(null, true);
+    cb(Object.assign(new Error('Chỉ chấp nhận video MP4, WebM hoặc MOV'), { statusCode: 400 }));
+  },
 });
-exports.imageUpload = multer({
+
+const imageUpload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: MAX_IMAGE_SIZE_MB * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Chỉ chấp nhận image'), false);
-  }
+    if (ALLOWED_IMAGE_MIME.includes(file.mimetype)) return cb(null, true);
+    cb(Object.assign(new Error('Chỉ chấp nhận ảnh JPEG, PNG hoặc WebP'), { statusCode: 400 }));
+  },
 });
+
+module.exports = { videoUpload, imageUpload, ALLOWED_VIDEO_MIME, ALLOWED_IMAGE_MIME };

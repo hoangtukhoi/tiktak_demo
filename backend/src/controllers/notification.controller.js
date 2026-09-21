@@ -1,18 +1,25 @@
 const notificationService = require('../services/notification.service');
-const { success } = require('../utils/apiResponse');
+const { success, error } = require('../utils/apiResponse');
+
 exports.getNotifications = async (req, res) => {
-  const notifs = await notificationService.getNotifications(req.user._id, req.query.page, req.query.limit);
-  success(res, notifs);
+  const data = await notificationService.getNotifications(req.user._id, {
+    page: Number(req.query.page) || 1,
+    limit: Math.min(Number(req.query.limit) || 20, 50),
+  });
+  success(res, data);
 };
+
 exports.markAsRead = async (req, res) => {
-  await notificationService.markAsRead(req.user._id, req.params.id);
-  success(res, null);
+  const updated = await notificationService.markAsRead(req.user._id, req.params.id);
+  if (!updated) return error(res, 'Không tìm thấy thông báo', 404);
+  success(res, updated);
 };
+
 exports.markAllAsRead = async (req, res) => {
-  await notificationService.markAllAsRead(req.user._id);
-  success(res, null);
+  const count = await notificationService.markAllAsRead(req.user._id);
+  success(res, { updated: count });
 };
+
 exports.getUnreadCount = async (req, res) => {
-  const count = await notificationService.getUnreadCount(req.user._id);
-  success(res, { count });
+  success(res, { count: await notificationService.getUnreadCount(req.user._id) });
 };
