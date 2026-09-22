@@ -50,7 +50,7 @@ Web app cho phép người dùng đăng tải, xem, tương tác với video ng�
 - Thông báo real-time (like, comment, follow, mention) qua WebSocket
 - Thông báo qua email (tuỳ chọn)
 
-### 2.6. ⭐ Tính năng AI Dịch & Lồng tiếng video (điểm nhấn)
+### 2.6. Tính năng AI Dịch & Lồng tiếng video
 1. **Speech-to-Text**: trích xuất transcript kèm timestamp từ audio gốc của video
 2. **Dịch văn bản**: dịch transcript sang ngôn ngữ đích (machine translation)
 3. **Text-to-Speech / Voice Cloning**: tổng hợp giọng nói ngôn ngữ đích, cố gắng giữ đặc trưng giọng gốc (tuỳ mức độ đầu tư)
