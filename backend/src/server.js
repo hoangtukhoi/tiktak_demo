@@ -22,7 +22,7 @@ async function main() {
   startDubbingWorker();
 
   server.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(` Server running on http://localhost:${PORT}`);
   });
 }
 main().catch(err => { console.error(err); process.exit(1); });
