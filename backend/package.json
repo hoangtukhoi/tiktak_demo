@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "worker": "node src/jobs/queue.js",
+    "worker": "node src/worker.js",
+    "seed": "node src/scripts/seed.js",
     "create:admin": "node src/scripts/createAdmin.js"
   },
   "dependencies": {

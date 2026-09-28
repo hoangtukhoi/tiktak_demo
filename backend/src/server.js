@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./config/env'); // ← validate biến môi trường, crash ngay nếu thiếu
 const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./app');
