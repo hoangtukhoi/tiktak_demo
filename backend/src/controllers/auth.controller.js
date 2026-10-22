@@ -12,12 +12,12 @@ exports.login = async (req, res) => {
   success(res, result, 200, 'Đăng nhập thành công');
 };
 exports.refresh = async (req, res) => {
-  const { refreshToken } = req.body;
+  const refreshToken = req.body?.refreshToken || req.body?.refresh_token || req.headers.authorization?.replace(/^Bearer\s+/i, '');
   const tokens = await authService.refreshToken(refreshToken);
   success(res, tokens);
 };
 exports.logout = async (req, res) => {
-  const { refreshToken } = req.body;
+  const refreshToken = req.body?.refreshToken || req.body?.refresh_token || req.headers.authorization?.replace(/^Bearer\s+/i, '');
   await authService.logout(req.user._id, refreshToken);
   success(res, null, 200, 'Đăng xuất thành công');
 };

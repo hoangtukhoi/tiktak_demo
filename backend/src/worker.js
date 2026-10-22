@@ -14,10 +14,12 @@ const { startDubbingWorker }   = require('./jobs/generateDubbing.job');
 
 async function startWorkers() {
   console.log('🔄 [Worker] Connecting to Redis...');
-  await redis.connect().catch((err) => {
-    console.error('❌ [Worker] Redis connection failed:', err.message);
-    process.exit(1);
-  });
+  if (redis.status === 'wait') {
+    await redis.connect().catch((err) => {
+      console.error('❌ [Worker] Redis connection failed:', err.message);
+      process.exit(1);
+    });
+  }
   console.log('✅ [Worker] Redis connected');
 
   startTranscodeWorker();

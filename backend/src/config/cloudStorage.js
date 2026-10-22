@@ -16,4 +16,9 @@ const BUCKETS = {
   AUDIO: process.env.S3_BUCKET_AUDIO || 'tiktak-audio',
 };
 
-module.exports = { s3, BUCKETS };
+const publicUrl = (bucket, key) => {
+  const endpoint = (process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT || 'http://localhost:9000').replace(/\/$/, '');
+  return `${endpoint}/${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
+};
+
+module.exports = { s3, BUCKETS, publicUrl };

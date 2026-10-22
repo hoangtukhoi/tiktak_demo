@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTak Backend Test Playground</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            tiktakRed: '#FE2C55',
+            tiktakCyan: '#25F4EE',
+            darkBg: '#121212',
+            cardBg: '#1E1E1E',
+            borderDark: '#2F2F2F',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+    pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  </style>
+</head>
+<body class="bg-darkBg text-gray-200 min-h-screen flex flex-col">
+
+  <!-- TOP HEADER -->
+  <header class="bg-cardBg border-b border-borderDark sticky top-0 z-50 px-4 py-3 shadow-md">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-tiktakCyan to-tiktakRed flex items-center justify-center font-black text-black text-xl">
+          T
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-white tracking-wide">TikTak API Test Console</h1>
+          <p class="text-xs text-gray-400">Giao diện kiểm thử API Backend cho Dev</p>
+        </div>
+      </div>
+
+      <!-- Quick Switcher Accounts -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs text-gray-400">Đăng nhập nhanh:</span>
+        <button onclick="quickLogin('alice@tiktak.com', 'User@123456', 'alice_dev')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs rounded border border-gray-700 transition">
+          👤 Alice (User)
+        </button>
+        <button onclick="quickLogin('bob@tiktak.com', 'User@123456', 'bob_music')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs rounded border border-gray-700 transition">
+          🎵 Bob (User)
+        </button>
+        <button onclick="quickLogin('carol@tiktak.com', 'User@123456', 'carol_food')" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs rounded border border-gray-700 transition">
+          🍜 Carol (User)
+        </button>
+        <button onclick="quickLogin('admin@tiktak.com', 'Admin@123456', 'admin')" class="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-red-200 text-xs rounded border border-red-700 transition">
+          🛡️ Admin
+        </button>
+      </div>
+
+      <!-- Current User Status -->
+      <div class="flex items-center gap-3">
+        <div id="socketStatus" class="flex items-center gap-1.5 text-xs text-yellow-400 bg-gray-900 px-2 py-1 rounded border border-gray-800">
+          <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+          <span>Socket: Disconnected</span>
+        </div>
+        <div id="userInfo" class="text-xs text-gray-300">
+          <span class="text-gray-500 italic">Chưa đăng nhập (Khách)</span>
+        </div>
+        <button id="logoutBtn" onclick="logout()" class="hidden px-2.5 py-1 bg-gray-800 hover:bg-red-900/80 text-gray-300 hover:text-red-200 text-xs rounded border border-gray-700 transition">
+          Đăng xuất
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- NAVIGATION TABS -->
+  <div class="bg-cardBg/80 border-b border-borderDark px-4">
+    <div class="max-w-7xl mx-auto flex gap-1 overflow-x-auto text-sm font-medium">
+      <button onclick="switchTab('feed')" id="tabBtn-feed" class="tab-btn px-4 py-3 border-b-2 border-tiktakRed text-white flex items-center gap-2">
+        📱 Video Feed
+      </button>
+      <button onclick="switchTab('comments')" id="tabBtn-comments" class="tab-btn px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2">
+        💬 Bình luận
+      </button>
+      <button onclick="switchTab('users')" id="tabBtn-users" class="tab-btn px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2">
+        👤 Người dùng & Follow
+      </button>
+      <button onclick="switchTab('notifications')" id="tabBtn-notifications" class="tab-btn px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2">
+        🔔 Thông báo <span id="notifBadge" class="hidden bg-tiktakRed text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">0</span>
+      </button>
+      <button onclick="switchTab('admin')" id="tabBtn-admin" class="tab-btn px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2">
+        🛡️ Quản trị Admin
+      </button>
+      <button onclick="switchTab('custom')" id="tabBtn-custom" class="tab-btn px-4 py-3 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2">
+        ⚡ Postman Mini Runner
+      </button>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- MAIN CONTENT AREA -->
+  <main class="max-w-7xl mx-auto w-full p-4 flex-1">
+
+    <!-- ========================================== -->
+    <!-- TAB 1: FEED & VIDEO -->
+    <!-- ========================================== -->
+    <section id="tab-feed" class="tab-content">
+      <div class="flex flex-wrap items-center justify-between gap-4 mb-4 bg-cardBg p-3 rounded-lg border border-borderDark">
+        <div class="flex items-center gap-2">
+          <button onclick="loadFeed('for-you')" class="px-4 py-1.5 bg-tiktakRed hover:bg-rose-600 text-white text-xs font-semibold rounded transition shadow">
+            🔥 Dành cho bạn (For You)
+          </button>
+          <button onclick="loadFeed('following')" class="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded border border-gray-700 transition">
+            👥 Đang theo dõi (Following)
+          </button>
+          <button onclick="loadTrendingHashtags()" class="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-tiktakCyan text-xs font-semibold rounded border border-gray-700 transition">
+            # Hashtags thịnh hành
+          </button>
+          <button onclick="toggleUploadBox()" class="px-4 py-1.5 bg-gradient-to-r from-tiktakCyan to-teal-400 text-black text-xs font-bold rounded shadow transition">
+            📤 Đăng video mới
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <input id="videoSearchInput" type="text" placeholder="Tìm kiếm video..." class="bg-darkBg border border-borderDark text-xs rounded px-3 py-1.5 w-48 text-white focus:outline-none focus:border-tiktakCyan">
+          <button onclick="searchVideos()" class="px-3 py-1.5 bg-tiktakCyan hover:bg-cyan-400 text-black font-semibold text-xs rounded transition">
+            Tìm
+          </button>
+        </div>
+      </div>
+
+      <!-- Video Upload Box -->
+      <div id="uploadBox" class="hidden mb-4 bg-cardBg p-4 rounded-xl border border-tiktakCyan/40 shadow-lg">
+        <h3 class="text-sm font-bold text-white mb-2 flex items-center justify-between">
+          <span>🎬 Đăng tải Video mới (POST /api/upload)</span>
+          <button onclick="toggleUploadBox()" class="text-gray-400 hover:text-white">&times;</button>
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="text-gray-400">Chọn file Video (mp4, mov, webm...):</label>
+            <input type="file" id="uploadFileInput" accept="video/*" class="mt-1 w-full bg-darkBg border border-borderDark p-1.5 rounded text-gray-300">
+          </div>
+          <div>
+            <label class="text-gray-400">Tiêu đề Video:</label>
+            <input type="text" id="uploadTitleInput" placeholder="Nhập tiêu đề video..." class="mt-1 w-full bg-darkBg border border-borderDark p-2 rounded text-white focus:outline-none focus:border-tiktakCyan">
+          </div>
+          <div>
+            <label class="text-gray-400">Mô tả:</label>
+            <input type="text" id="uploadDescInput" placeholder="Mô tả nội dung..." class="mt-1 w-full bg-darkBg border border-borderDark p-2 rounded text-white focus:outline-none focus:border-tiktakCyan">
+          </div>
+          <div>
+            <label class="text-gray-400">Hashtags (phân tách bởi dấu phẩy hoặc khoảng trắng):</label>
+            <input type="text" id="uploadTagsInput" placeholder="tech, review, coding..." class="mt-1 w-full bg-darkBg border border-borderDark p-2 rounded text-white focus:outline-none focus:border-tiktakCyan">
+          </div>
+        </div>
+        <div id="uploadProgressContainer" class="hidden mt-3">
+          <div class="flex justify-between text-xs text-gray-400 mb-1">
+            <span id="uploadStatusText">Đang tải lên...</span>
+            <span id="uploadPercentText">0%</span>
+          </div>
+          <div class="w-full bg-darkBg h-2 rounded-full overflow-hidden">
+            <div id="uploadProgressBar" class="bg-gradient-to-r from-tiktakCyan to-tiktakRed h-full w-0 transition-all duration-300"></div>
+          </div>
+        </div>
+        <div class="mt-3 flex justify-end gap-2">
+          <button onclick="toggleUploadBox()" class="px-3 py-1.5 bg-gray-800 text-gray-300 text-xs rounded hover:bg-gray-700">Huỷ</button>
+          <button id="uploadSubmitBtn" onclick="submitVideoUpload()" class="px-5 py-1.5 bg-tiktakRed text-white text-xs font-bold rounded shadow hover:bg-rose-600 transition">
+            Bắt đầu đăng tải
+          </button>
+        </div>
+      </div>
+
+      <!-- Trending Hashtags Chips -->
+      <div id="hashtagsBar" class="hidden mb-4 flex gap-2 overflow-x-auto pb-1 text-xs"></div>
+
+      <!-- Video Feed Grid -->
+      <div id="videoFeedList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="text-center py-12 text-gray-500 col-span-full">
+          Nhấn nút "Dành cho bạn" để tải danh sách video.
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 2: COMMENTS -->
+    <!-- ========================================== -->
+    <section id="tab-comments" class="tab-content hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Video Context & Form -->
+        <div class="bg-cardBg p-4 rounded-lg border border-borderDark">
+          <h2 class="text-sm font-bold text-white mb-3">Chọn Video để xem bình luận</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs text-gray-400">Video ID:</label>
+              <input id="commentVideoId" type="text" placeholder="Paste ObjectId của Video vào đây..." class="mt-1 w-full bg-darkBg border border-borderDark text-xs rounded p-2 text-white font-mono focus:outline-none focus:border-tiktakCyan">
+            </div>
+            <button onclick="loadComments()" class="w-full py-2 bg-tiktakCyan hover:bg-cyan-400 text-black font-semibold text-xs rounded transition">
+              Tải danh sách bình luận
+            </button>
+
+            <div class="border-t border-borderDark pt-3">
+              <label class="text-xs text-gray-400">Viết bình luận mới:</label>
+              <textarea id="commentContent" rows="3" placeholder="Nhập nội dung bình luận..." class="mt-1 w-full bg-darkBg border border-borderDark text-xs rounded p-2 text-white focus:outline-none focus:border-tiktakRed"></textarea>
+              <div id="replyingToBanner" class="hidden text-[11px] text-yellow-400 mt-1 flex justify-between items-center bg-yellow-950/40 p-1.5 rounded">
+                <span>Đang trả lời: <span id="replyingToAuthor" class="font-bold"></span></span>
+                <button onclick="cancelReply()" class="text-gray-400 hover:text-white">&times;</button>
+              </div>
+              <button onclick="submitComment()" class="mt-2 w-full py-2 bg-tiktakRed hover:bg-rose-600 text-white font-semibold text-xs rounded transition shadow">
+                Gửi bình luận
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comments List -->
+        <div class="md:col-span-2 bg-cardBg p-4 rounded-lg border border-borderDark flex flex-col">
+          <div class="flex items-center justify-between mb-3 border-b border-borderDark pb-2">
+            <h3 class="text-sm font-bold text-white">Bình luận (<span id="commentTotalCount">0</span>)</h3>
+            <button onclick="loadComments()" class="text-xs text-gray-400 hover:text-white">Làm mới</button>
+          </div>
+          <div id="commentsContainer" class="flex-1 space-y-3 overflow-y-auto max-h-[600px]">
+            <p class="text-xs text-gray-500 text-center py-8">Chưa có bình luận nào hoặc chưa chọn video.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 3: USERS & FOLLOW -->
+    <!-- ========================================== -->
+    <section id="tab-users" class="tab-content hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Search & Quick Profile Select -->
+        <div class="bg-cardBg p-4 rounded-lg border border-borderDark space-y-4">
+          <h2 class="text-sm font-bold text-white">Tìm kiếm người dùng</h2>
+          <div class="flex gap-2">
+            <input id="userSearchInput" type="text" placeholder="Nhập username..." class="flex-1 bg-darkBg border border-borderDark text-xs rounded px-3 py-2 text-white focus:outline-none focus:border-tiktakCyan">
+            <button onclick="searchUsers()" class="px-3 bg-tiktakCyan text-black text-xs font-semibold rounded hover:bg-cyan-400">
+              Tìm
+            </button>
+          </div>
+          <div id="userSearchResults" class="space-y-1.5 text-xs"></div>
+
+          <div class="border-t border-borderDark pt-3">
+            <h3 class="text-xs font-bold text-gray-400 mb-2">Hồ sơ nhanh:</h3>
+            <div class="flex flex-col gap-1.5">
+              <button onclick="loadUserProfile('alice_dev')" class="text-left px-2.5 py-1.5 bg-darkBg hover:bg-gray-800 rounded text-xs border border-borderDark">
+                👩 @alice_dev (Tech Reviewer)
+              </button>
+              <button onclick="loadUserProfile('bob_music')" class="text-left px-2.5 py-1.5 bg-darkBg hover:bg-gray-800 rounded text-xs border border-borderDark">
+                🎵 @bob_music (Acoustic Cover)
+              </button>
+              <button onclick="loadUserProfile('carol_food')" class="text-left px-2.5 py-1.5 bg-darkBg hover:bg-gray-800 rounded text-xs border border-borderDark">
+                🍜 @carol_food (Food Blogger)
+              </button>
+            </div>
+          </div>
+
+          <div class="border-t border-borderDark pt-3">
+            <h3 class="text-xs font-bold text-gray-400 mb-2">Cập nhật Bio của tôi:</h3>
+            <textarea id="updateBioInput" rows="2" placeholder="Bio mới..." class="w-full bg-darkBg border border-borderDark text-xs rounded p-2 text-white focus:outline-none focus:border-tiktakRed"></textarea>
+            <button onclick="updateMyBio()" class="mt-2 w-full py-1.5 bg-gray-800 hover:bg-gray-700 text-xs text-white rounded border border-gray-700">
+              Lưu Bio
+            </button>
+          </div>
+        </div>
+
+        <!-- Profile Detail Card & Videos -->
+        <div class="md:col-span-2 space-y-4">
+          <div id="userProfileCard" class="bg-cardBg p-5 rounded-lg border border-borderDark">
+            <p class="text-xs text-gray-500 text-center py-6">Chọn hoặc tìm một người dùng để xem hồ sơ.</p>
+          </div>
+
+          <!-- User's Videos -->
+          <div class="bg-cardBg p-4 rounded-lg border border-borderDark">
+            <h3 class="text-sm font-bold text-white mb-3">Video đã đăng</h3>
+            <div id="userVideosGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <p class="text-xs text-gray-500 col-span-full">Chưa có video nào.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 4: NOTIFICATIONS -->
+    <!-- ========================================== -->
+    <section id="tab-notifications" class="tab-content hidden">
+      <div class="bg-cardBg p-4 rounded-lg border border-borderDark max-w-2xl mx-auto">
+        <div class="flex items-center justify-between mb-4 border-b border-borderDark pb-3">
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-bold text-white">Hộp thư Thông báo</h2>
+            <span id="notifUnreadBadge" class="badge bg-tiktakRed text-white">0 chưa đọc</span>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="loadNotifications()" class="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-gray-200 rounded border border-gray-700">
+              Làm mới
+            </button>
+            <button onclick="markAllNotificationsRead()" class="px-3 py-1 bg-tiktakCyan/20 hover:bg-tiktakCyan/30 text-tiktakCyan text-xs rounded border border-tiktakCyan/40">
+              Đánh dấu tất cả đã đọc
+            </button>
+          </div>
+        </div>
+
+        <div id="notificationsList" class="space-y-2 max-h-[600px] overflow-y-auto">
+          <p class="text-xs text-gray-500 text-center py-8">Đang tải thông báo...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 5: ADMIN DASHBOARD -->
+    <!-- ========================================== -->
+    <section id="tab-admin" class="tab-content hidden">
+      <!-- Admin Stats Overview -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div class="bg-cardBg p-3.5 rounded-lg border border-borderDark">
+          <p class="text-xs text-gray-400">Tổng người dùng</p>
+          <p id="statUsers" class="text-xl font-black text-white mt-1">-</p>
+        </div>
+        <div class="bg-cardBg p-3.5 rounded-lg border border-borderDark">
+          <p class="text-xs text-gray-400">Tổng video</p>
+          <p id="statVideos" class="text-xl font-black text-tiktakCyan mt-1">-</p>
+        </div>
+        <div class="bg-cardBg p-3.5 rounded-lg border border-borderDark">
+          <p class="text-xs text-gray-400">Tổng lượt xem</p>
+          <p id="statViews" class="text-xl font-black text-yellow-400 mt-1">-</p>
+        </div>
+        <div class="bg-cardBg p-3.5 rounded-lg border border-borderDark">
+          <p class="text-xs text-gray-400">Báo cáo chờ duyệt</p>
+          <p id="statPendingReports" class="text-xl font-black text-orange-400 mt-1">-</p>
+        </div>
+        <div class="bg-cardBg p-3.5 rounded-lg border border-borderDark">
+          <p class="text-xs text-gray-400">Video bị gắn cờ</p>
+          <p id="statFlagged" class="text-xl font-black text-tiktakRed mt-1">-</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-white">Video bị gắn cờ cần kiểm duyệt (/admin/videos/flagged)</h3>
+        <button onclick="loadAdminData()" class="px-3 py-1 bg-gray-800 text-xs rounded hover:bg-gray-700">Làm mới số liệu</button>
+      </div>
+
+      <!-- Flagged Videos List -->
+      <div id="flaggedVideosContainer" class="bg-cardBg rounded-lg border border-borderDark p-4 mb-6">
+        <p class="text-xs text-gray-500 text-center py-4">Đang tải danh sách video bị cờ...</p>
+      </div>
+
+      <!-- User Management Table -->
+      <div class="bg-cardBg rounded-lg border border-borderDark p-4 mb-6">
+        <h3 class="text-sm font-bold text-white mb-3">Quản lý người dùng (/admin/users)</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-darkBg text-gray-400 uppercase text-[10px] border-b border-borderDark">
+              <tr>
+                <th class="p-2.5">User</th>
+                <th class="p-2.5">Email</th>
+                <th class="p-2.5">Role</th>
+                <th class="p-2.5">Trạng thái</th>
+                <th class="p-2.5 text-right">Thao tác Admin</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersTableBody" class="divide-y divide-borderDark">
+              <tr><td colspan="5" class="p-4 text-center text-gray-500">Đang tải...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Logs Table -->
+      <div class="bg-cardBg rounded-lg border border-borderDark p-4">
+        <h3 class="text-sm font-bold text-white mb-3">Nhật ký thao tác Admin (/admin/audit-logs)</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-darkBg text-gray-400 uppercase text-[10px] border-b border-borderDark">
+              <tr>
+                <th class="p-2.5">Admin</th>
+                <th class="p-2.5">Hành động</th>
+                <th class="p-2.5">Đối tượng</th>
+                <th class="p-2.5">Thời gian</th>
+              </tr>
+            </thead>
+            <tbody id="adminAuditLogsBody" class="divide-y divide-borderDark font-mono text-[11px]">
+              <tr><td colspan="4" class="p-4 text-center text-gray-500">Đang tải...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 6: MINI POSTMAN RUNNER -->
+    <!-- ========================================== -->
+    <section id="tab-custom" class="tab-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Request Builder -->
+        <div class="bg-cardBg p-4 rounded-lg border border-borderDark space-y-3">
+          <h2 class="text-sm font-bold text-white">Gửi Request API tùy chỉnh</h2>
+
+          <div class="flex gap-2">
+            <select id="reqMethod" class="bg-darkBg border border-borderDark text-xs rounded px-3 py-2 text-white font-bold focus:outline-none">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+            <input id="reqUrl" type="text" value="/api/auth/me" placeholder="/api/..." class="flex-1 bg-darkBg border border-borderDark text-xs rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-tiktakCyan">
+            <button onclick="sendCustomRequest()" class="px-5 bg-gradient-to-r from-tiktakCyan to-teal-400 text-black font-bold text-xs rounded hover:opacity-95">
+              Gửi
+            </button>
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-400">Request Body (JSON cho POST / PATCH):</label>
+            <textarea id="reqBody" rows="7" placeholder="{&#10;  &#10;}" class="mt-1 w-full bg-darkBg border border-borderDark text-xs rounded p-2.5 text-white font-mono focus:outline-none focus:border-tiktakCyan"></textarea>
+          </div>
+
+          <div class="text-[11px] text-gray-500">
+            * Header <code>Authorization: Bearer &lt;token&gt;</code> sẽ tự động được đính kèm nếu bạn đã đăng nhập.
+          </div>
+        </div>
+
+        <!-- Response Viewer -->
+        <div class="bg-cardBg p-4 rounded-lg border border-borderDark flex flex-col">
+          <div class="flex items-center justify-between mb-2 pb-2 border-b border-borderDark">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-bold text-white">Response Output</h3>
+              <span id="resStatusBadge" class="hidden badge bg-gray-700 text-white font-mono">200 OK</span>
+              <span id="resTimeBadge" class="text-[11px] text-gray-400"></span>
+            </div>
+            <button onclick="copyResponse()" class="text-xs text-tiktakCyan hover:underline">Copy JSON</button>
+          </div>
+          <pre id="resViewer" class="bg-darkBg p-3 rounded text-xs text-green-400 font-mono overflow-auto flex-1 max-h-[480px]">Chưa có request nào.</pre>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    const API_BASE = window.location.origin;
+    let currentUser = null;
+    let token = localStorage.getItem('tiktak_token') || null;
+    let socket = null;
+    let currentFeed = [];
+    let replyingToParentId = null;
+
+    // Toast helper
+    function showToast(title, message, isError = false) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `p-3 rounded-lg shadow-xl border text-xs pointer-events-auto transition-all transform translate-y-2 opacity-0 duration-300 ${
+        isError ? 'bg-red-950 border-red-700 text-red-200' : 'bg-gray-900 border-borderDark text-gray-200'
+      }`;
+      toast.innerHTML = `
+        <div class="font-bold flex items-center justify-between mb-1">
+          <span>${title}</span>
+          <button onclick="this.parentElement.parentElement.remove()" class="text-gray-400 hover:text-white">&times;</button>
+        </div>
+        <div>${message}</div>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => { toast.classList.remove('translate-y-2', 'opacity-0'); }, 10);
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // Socket Init
+    function initSocket(jwtToken) {
+      if (socket) {
+        socket.disconnect();
+      }
+      if (!jwtToken) {
+        document.getElementById('socketStatus').innerHTML = '<span class="w-2 h-2 rounded-full bg-gray-500"></span><span>Socket: Khách (No Auth)</span>';
+        return;
+      }
+
+      socket = io(API_BASE, {
+        auth: { token: jwtToken }
+      });
+
+      socket.on('connect', () => {
+        document.getElementById('socketStatus').innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400 animate-ping"></span><span class="text-green-400 font-semibold">Socket: Connected</span>';
+      });
+
+      socket.on('disconnect', () => {
+        document.getElementById('socketStatus').innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-400"></span><span>Socket: Disconnected</span>';
+      });
+
+      socket.on('new_notification', (notif) => {
+        showToast('🔔 Thông báo mới!', notif.payload?.message || `Bạn có thông báo mới loại: ${notif.type}`);
+        incrementNotifBadge();
+      });
+    }
+
+    function incrementNotifBadge() {
+      const badge = document.getElementById('notifBadge');
+      let count = parseInt(badge.innerText || '0') + 1;
+      badge.innerText = count;
+      badge.classList.remove('hidden');
+    }
+
+    // Fetch helper
+    async function apiRequest(endpoint, method = 'GET', body = null) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const options = { method, headers };
+      if (body && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
+        options.body = JSON.stringify(body);
+      }
+
+      const res = await fetch(`${API_BASE}${endpoint}`, options);
+      const data = await res.json().catch(() => ({ success: false, message: 'Invalid JSON response' }));
+      return { status: res.status, ok: res.ok, data };
+    }
+
+    // Quick Login
+    async function quickLogin(email, password, expectedUsername) {
+      const { ok, data } = await apiRequest('/api/auth/login', 'POST', { email, password });
+      if (ok && data.success) {
+        token = data.data.accessToken;
+        localStorage.setItem('tiktak_token', token);
+        currentUser = data.data.user;
+        updateUserUI();
+        initSocket(token);
+        showToast('Đăng nhập thành công', `Chào mừng ${currentUser.username}!`);
+        loadFeed('for-you');
+        checkUnreadNotifications();
+      } else {
+        showToast('Đăng nhập thất bại', data.message || 'Không thể đăng nhập', true);
+      }
+    }
+
+    function logout() {
+      token = null;
+      currentUser = null;
+      localStorage.removeItem('tiktak_token');
+      updateUserUI();
+      initSocket(null);
+      showToast('Đã đăng xuất', 'Đang ở chế độ khách.');
+    }
+
+    async function checkMyProfile() {
+      if (!token) return;
+      const { ok, data } = await apiRequest('/api/auth/me');
+      if (ok && data.success) {
+        currentUser = data.data;
+        updateUserUI();
+        initSocket(token);
+        checkUnreadNotifications();
+      } else {
+        logout();
+      }
+    }
+
+    function updateUserUI() {
+      const userInfoEl = document.getElementById('userInfo');
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (currentUser) {
+        userInfoEl.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-400"></span>
+            <span class="font-bold text-white">@${currentUser.username}</span>
+            <span class="badge ${currentUser.role === 'admin' ? 'bg-red-800 text-red-200' : 'bg-blue-900 text-blue-200'}">${currentUser.role}</span>
+          </div>
+        `;
+        logoutBtn.classList.remove('hidden');
+      } else {
+        userInfoEl.innerHTML = '<span class="text-gray-500 italic">Chưa đăng nhập (Khách)</span>';
+        logoutBtn.classList.add('hidden');
+      }
+    }
+
+    // Tabs Switcher
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-tiktakRed', 'text-white');
+        btn.classList.add('border-transparent', 'text-gray-400');
+      });
+
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tabBtn-${tabId}`);
+      activeBtn.classList.add('border-tiktakRed', 'text-white');
+      activeBtn.classList.remove('border-transparent', 'text-gray-400');
+
+      if (tabId === 'admin') loadAdminData();
+      if (tabId === 'notifications') loadNotifications();
+    }
+
+    // ============================================
+    // TAB 1: FEED & VIDEOS
+    // ============================================
+    async function loadFeed(type = 'for-you') {
+      const feedContainer = document.getElementById('videoFeedList');
+      feedContainer.innerHTML = '<div class="text-center py-12 text-gray-400 col-span-full">Đang tải video...</div>';
+
+      const endpoint = type === 'following' ? '/api/feed/following' : '/api/feed/for-you';
+      const { ok, data } = await apiRequest(endpoint);
+
+      if (!ok || !data.success) {
+        feedContainer.innerHTML = `<div class="text-center py-12 text-red-400 col-span-full">${data.message || 'Lỗi tải feed'}</div>`;
+        return;
+      }
+
+      currentFeed = data.data || [];
+      renderVideos(currentFeed);
+    }
+
+    async function searchVideos() {
+      const q = document.getElementById('videoSearchInput').value.trim();
+      if (!q) return loadFeed('for-you');
+
+      const { ok, data } = await apiRequest(`/api/videos/search?q=${encodeURIComponent(q)}`);
+      if (ok && data.success) {
+        renderVideos(data.data || []);
+      }
+    }
+
+    async function loadTrendingHashtags() {
+      const bar = document.getElementById('hashtagsBar');
+      const { ok, data } = await apiRequest('/api/videos/hashtags/trending');
+      if (ok && data.success) {
+        bar.innerHTML = data.data.map(h => `
+          <button onclick="document.getElementById('videoSearchInput').value='${h.tag}'; searchVideos();" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-tiktakCyan text-xs border border-borderDark flex items-center gap-1">
+            <span>#${h.tag}</span>
+            <span class="text-[10px] text-gray-500">(${h.count})</span>
+          </button>
+        `).join('');
+        bar.classList.remove('hidden');
+      }
+    }
+
+    function renderVideos(videos) {
+      const feedContainer = document.getElementById('videoFeedList');
+      if (!videos.length) {
+        feedContainer.innerHTML = '<div class="text-center py-12 text-gray-500 col-span-full">Không có video nào.</div>';
+        return;
+      }
+
+      feedContainer.innerHTML = videos.map(v => {
+        const author = v.userId?.username || 'user';
+        const isLiked = v.isLiked || false;
+        return `
+          <div class="bg-cardBg rounded-xl border border-borderDark overflow-hidden flex flex-col justify-between hover:border-gray-600 transition shadow">
+            <!-- Thumbnail / Header -->
+            <div class="relative bg-black aspect-[9/12] flex items-center justify-center overflow-hidden group">
+              <img src="${v.thumbnailUrl || 'https://picsum.photos/400/600'}" alt="${v.title}" class="w-full h-full object-cover opacity-90 group-hover:scale-105 transition duration-300">
+              <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3">
+                <span class="text-xs font-bold text-tiktakCyan flex items-center gap-1">
+                  @${author}
+                  ${v.userId?.isVerified ? '<span class="text-blue-400">✓</span>' : ''}
+                </span>
+                <h4 class="text-sm font-semibold text-white line-clamp-2 mt-0.5">${v.title}</h4>
+              </div>
+            </div>
+
+            <!-- Content & Actions -->
+            <div class="p-3 space-y-2">
+              <p class="text-xs text-gray-400 line-clamp-2">${v.description || ''}</p>
+              <div class="flex flex-wrap gap-1 text-[11px] text-tiktakCyan">
+                ${(v.hashtags || []).map(h => `<span>#${h}</span>`).join(' ')}
+              </div>
+
+              <!-- Action Bar -->
+              <div class="border-t border-borderDark pt-2 flex items-center justify-between text-xs">
+                <div class="flex items-center gap-3">
+                  <!-- Like Button -->
+                  <button onclick="toggleLikeVideo('${v._id}', this)" class="flex items-center gap-1 text-gray-300 hover:text-tiktakRed transition">
+                    <span class="text-base">${isLiked ? '❤️' : '🤍'}</span>
+                    <span class="like-count font-bold">${v.likeCount || 0}</span>
+                  </button>
+
+                  <!-- View Counter -->
+                  <button onclick="recordVideoView('${v._id}', this)" class="flex items-center gap-1 text-gray-400 hover:text-white transition" title="Ghi nhận 1 lượt xem">
+                    <span>👁️</span>
+                    <span class="view-count">${v.viewCount || 0}</span>
+                  </button>
+
+                  <!-- Comment Switch -->
+                  <button onclick="openCommentsForVideo('${v._id}')" class="flex items-center gap-1 text-gray-400 hover:text-tiktakCyan transition">
+                    <span>💬</span>
+                    <span>${v.commentCount || 0}</span>
+                  </button>
+                </div>
+
+                <!-- Report Button -->
+                <button onclick="reportVideo('${v._id}')" class="text-gray-500 hover:text-orange-400 text-xs px-2 py-0.5 rounded border border-gray-800 hover:border-orange-500/40">
+                  🚩 Báo cáo
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function toggleLikeVideo(videoId, btnEl) {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập để like video.', true);
+      const { ok, data } = await apiRequest(`/api/videos/${videoId}/like`, 'POST');
+      if (ok && data.success) {
+        const liked = data.data.liked;
+        const count = data.data.likeCount;
+        btnEl.querySelector('.like-count').innerText = count;
+        btnEl.querySelector('span:first-child').innerText = liked ? '❤️' : '🤍';
+        showToast('Like Video', liked ? 'Đã thích video' : 'Đã bỏ thích');
+      }
+    }
+
+    async function recordVideoView(videoId, btnEl) {
+      const { ok } = await apiRequest(`/api/videos/${videoId}/view`, 'POST', { watchTimeMs: 15000 });
+      if (ok) {
+        const countEl = btnEl.querySelector('.view-count');
+        countEl.innerText = parseInt(countEl.innerText || '0') + 1;
+        showToast('Lượt xem', '+1 lượt xem được ghi nhận');
+      }
+    }
+
+    async function reportVideo(videoId) {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập để báo cáo.', true);
+      const reason = prompt('Lý do báo cáo vi phạm:\n(spam | violence | sexual | other)', 'spam');
+      if (!reason) return;
+
+      const { ok, data } = await apiRequest(`/api/videos/${videoId}/report`, 'POST', { reason });
+      if (ok && data.success) {
+        showToast('Báo cáo thành công', 'Video đã được gửi tới hàng đợi kiểm duyệt admin.');
+      } else {
+        showToast('Thất bại', data.message || 'Không thể báo cáo', true);
+      }
+    }
+
+    function openCommentsForVideo(videoId) {
+      document.getElementById('commentVideoId').value = videoId;
+      switchTab('comments');
+      loadComments();
+    }
+
+    // ============================================
+    // TAB 2: COMMENTS
+    // ============================================
+    async function loadComments() {
+      const videoId = document.getElementById('commentVideoId').value.trim();
+      const container = document.getElementById('commentsContainer');
+      if (!videoId) return showToast('Chưa chọn video', 'Vui lòng nhập Video ID', true);
+
+      container.innerHTML = '<p class="text-xs text-gray-500 text-center py-8">Đang tải bình luận...</p>';
+      const { ok, data } = await apiRequest(`/api/comments/video/${videoId}`);
+
+      if (!ok || !data.success) {
+        container.innerHTML = `<p class="text-xs text-red-400 text-center py-8">${data.message || 'Lỗi tải'}</p>`;
+        return;
+      }
+
+      const comments = data.data || [];
+      document.getElementById('commentTotalCount').innerText = comments.length;
+
+      if (!comments.length) {
+        container.innerHTML = '<p class="text-xs text-gray-500 text-center py-8">Chưa có bình luận nào. Hãy là người đầu tiên!</p>';
+        return;
+      }
+
+      container.innerHTML = comments.map(c => `
+        <div class="p-3 bg-darkBg rounded-lg border border-borderDark space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-tiktakCyan">@${c.userId?.username || 'user'}</span>
+            <span class="text-gray-500 text-[10px]">${new Date(c.createdAt).toLocaleTimeString()}</span>
+          </div>
+          <p class="text-xs text-gray-200">${c.content}</p>
+
+          <div class="flex items-center justify-between pt-1 text-[11px] text-gray-400 border-t border-gray-800">
+            <div class="flex items-center gap-3">
+              <button onclick="toggleLikeComment('${c._id}', this)" class="hover:text-tiktakRed">
+                <span>❤️</span> <span class="c-like-count">${c.likeCount || 0}</span>
+              </button>
+              <button onclick="startReply('${c._id}', '${c.userId?.username || 'user'}')" class="hover:text-tiktakCyan">
+                Phản hồi
+              </button>
+            </div>
+            <button onclick="deleteComment('${c._id}')" class="text-gray-600 hover:text-red-400">
+              Xoá
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function startReply(commentId, author) {
+      replyingToParentId = commentId;
+      document.getElementById('replyingToAuthor').innerText = author;
+      document.getElementById('replyingToBanner').classList.remove('hidden');
+      document.getElementById('commentContent').focus();
+    }
+
+    function cancelReply() {
+      replyingToParentId = null;
+      document.getElementById('replyingToBanner').classList.add('hidden');
+    }
+
+    async function submitComment() {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập để bình luận.', true);
+      const videoId = document.getElementById('commentVideoId').value.trim();
+      const content = document.getElementById('commentContent').value.trim();
+
+      if (!videoId || !content) return showToast('Thiếu thông tin', 'Vui lòng nhập Video ID và nội dung', true);
+
+      const payload = { videoId, content };
+      if (replyingToParentId) payload.parentId = replyingToParentId;
+
+      const { ok, data } = await apiRequest('/api/comments', 'POST', payload);
+      if (ok && data.success) {
+        document.getElementById('commentContent').value = '';
+        cancelReply();
+        showToast('Thành công', 'Đã đăng bình luận.');
+        loadComments();
+      } else {
+        showToast('Lỗi', data.message || 'Không thể đăng bình luận', true);
+      }
+    }
+
+    async function toggleLikeComment(commentId, btnEl) {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Cần đăng nhập để like bình luận', true);
+      const { ok, data } = await apiRequest(`/api/comments/${commentId}/like`, 'POST');
+      if (ok && data.success) {
+        const countEl = btnEl.querySelector('.c-like-count');
+        countEl.innerText = data.data.likeCount;
+      }
+    }
+
+    async function deleteComment(commentId) {
+      if (!confirm('Bạn có chắc chắn muốn xoá bình luận này?')) return;
+      const { ok, data } = await apiRequest(`/api/comments/${commentId}`, 'DELETE');
+      if (ok && data.success) {
+        showToast('Đã xoá', 'Bình luận đã được xoá.');
+        loadComments();
+      } else {
+        showToast('Lỗi', data.message || 'Không thể xoá bình luận', true);
+      }
+    }
+
+    // ============================================
+    // TAB 3: USERS & FOLLOW
+    // ============================================
+    async function searchUsers() {
+      const q = document.getElementById('userSearchInput').value.trim();
+      const resultsEl = document.getElementById('userSearchResults');
+      if (!q) return;
+
+      const { ok, data } = await apiRequest(`/api/users/search?q=${encodeURIComponent(q)}`);
+      if (ok && data.success) {
+        const users = data.data || [];
+        resultsEl.innerHTML = users.map(u => `
+          <button onclick="loadUserProfile('${u.username}')" class="w-full text-left px-2 py-1.5 bg-darkBg hover:bg-gray-800 rounded flex items-center justify-between border border-borderDark">
+            <span class="font-bold text-white">@${u.username}</span>
+            <span class="text-gray-500">${u.followerCount || 0} followers</span>
+          </button>
+        `).join('') || '<p class="text-gray-500">Không tìm thấy ai.</p>';
+      }
+    }
+
+    async function loadUserProfile(username) {
+      const card = document.getElementById('userProfileCard');
+      card.innerHTML = '<p class="text-xs text-gray-500 text-center py-6">Đang tải profile...</p>';
+
+      const { ok, data } = await apiRequest(`/api/users/${username}`);
+      if (!ok || !data.success) {
+        card.innerHTML = `<p class="text-xs text-red-400 text-center py-6">${data.message || 'Lỗi tải user'}</p>`;
+        return;
+      }
+
+      const u = data.data;
+      const isFollowing = u.isFollowing || false;
+
+      card.innerHTML = `
+        <div class="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <img src="${u.avatarUrl || 'https://picsum.photos/100/100'}" class="w-16 h-16 rounded-full border-2 border-tiktakCyan object-cover">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-base font-bold text-white">@${u.username}</h3>
+                ${u.isVerified ? '<span class="text-blue-400 text-sm">✓</span>' : ''}
+                <span class="badge ${u.role === 'admin' ? 'bg-red-800 text-red-200' : 'bg-gray-700 text-gray-200'}">${u.role}</span>
+              </div>
+              <p class="text-xs text-gray-300 mt-1">${u.bio || 'Chưa có bio.'}</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="toggleFollow('${u.username}', this)" class="px-5 py-2 ${isFollowing ? 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700' : 'bg-tiktakRed hover:bg-rose-600 text-white'} font-semibold text-xs rounded transition shadow">
+              ${isFollowing ? 'Đang theo dõi' : '+ Theo dõi'}
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-borderDark text-center">
+          <div>
+            <p class="text-xs text-gray-400">Đang theo dõi</p>
+            <p class="text-sm font-bold text-white">${u.followingCount || 0}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Follower</p>
+            <p class="text-sm font-bold text-white" id="profileFollowerCount">${u.followerCount || 0}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Tổng Likes</p>
+            <p class="text-sm font-bold text-tiktakRed">${u.totalLikes || 0}</p>
+          </div>
+        </div>
+      `;
+
+      // Load user's videos
+      loadUserVideos(username);
+    }
+
+    async function toggleFollow(username, btnEl) {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập để theo dõi.', true);
+      const { ok, data } = await apiRequest(`/api/users/${username}/follow`, 'POST');
+      if (ok && data.success) {
+        const following = data.data.following;
+        btnEl.innerText = following ? 'Đang theo dõi' : '+ Theo dõi';
+        btnEl.className = `px-5 py-2 ${following ? 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700' : 'bg-tiktakRed hover:bg-rose-600 text-white'} font-semibold text-xs rounded transition shadow`;
+
+        const followerCountEl = document.getElementById('profileFollowerCount');
+        if (followerCountEl) {
+          let c = parseInt(followerCountEl.innerText || '0');
+          followerCountEl.innerText = following ? c + 1 : Math.max(0, c - 1);
+        }
+        showToast('Follow', following ? `Đã theo dõi @${username}` : `Đã huỷ theo dõi @${username}`);
+      }
+    }
+
+    async function loadUserVideos(username) {
+      const grid = document.getElementById('userVideosGrid');
+      grid.innerHTML = '<p class="text-xs text-gray-500 col-span-full">Đang tải video...</p>';
+
+      const { ok, data } = await apiRequest(`/api/users/${username}/videos`);
+      if (ok && data.success) {
+        const videos = data.data || [];
+        if (!videos.length) {
+          grid.innerHTML = '<p class="text-xs text-gray-500 col-span-full">Người dùng này chưa có video nào.</p>';
+          return;
+        }
+
+        grid.innerHTML = videos.map(v => `
+          <div class="bg-darkBg rounded p-2.5 border border-borderDark flex items-center gap-3">
+            <img src="${v.thumbnailUrl || 'https://picsum.photos/80/80'}" class="w-12 h-16 object-cover rounded bg-black">
+            <div class="flex-1 min-w-0">
+              <h5 class="text-xs font-semibold text-white truncate">${v.title}</h5>
+              <div class="flex gap-2 text-[10px] text-gray-400 mt-1">
+                <span>👁️ ${v.viewCount || 0}</span>
+                <span>❤️ ${v.likeCount || 0}</span>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function updateMyBio() {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập để sửa bio', true);
+      const bio = document.getElementById('updateBioInput').value.trim();
+      const { ok, data } = await apiRequest('/api/users/me', 'PATCH', { bio });
+      if (ok && data.success) {
+        showToast('Cập nhật thành công', 'Bio của bạn đã được cập nhật.');
+        document.getElementById('updateBioInput').value = '';
+      }
+    }
+
+    // ============================================
+    // TAB 4: NOTIFICATIONS
+    // ============================================
+    async function checkUnreadNotifications() {
+      if (!token) return;
+      const { ok, data } = await apiRequest('/api/notifications/unread-count');
+      if (ok && data.success) {
+        const count = data.data.count || 0;
+        const badge = document.getElementById('notifBadge');
+        const badge2 = document.getElementById('notifUnreadBadge');
+        badge.innerText = count;
+        badge2.innerText = `${count} chưa đọc`;
+        if (count > 0) badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+      }
+    }
+
+    async function loadNotifications() {
+      const container = document.getElementById('notificationsList');
+      if (!token) {
+        container.innerHTML = '<p class="text-xs text-gray-500 text-center py-8">Vui lòng đăng nhập để xem thông báo.</p>';
+        return;
+      }
+
+      container.innerHTML = '<p class="text-xs text-gray-500 text-center py-8">Đang tải...</p>';
+      const { ok, data } = await apiRequest('/api/notifications');
+
+      if (ok && data.success) {
+        const notifs = data.data || [];
+        if (!notifs.length) {
+          container.innerHTML = '<p class="text-xs text-gray-500 text-center py-8">Không có thông báo nào.</p>';
+          return;
+        }
+
+        container.innerHTML = notifs.map(n => `
+          <div class="p-3 rounded-lg border ${n.isRead ? 'bg-darkBg border-borderDark opacity-75' : 'bg-gray-800/80 border-tiktakRed/50'} flex items-start justify-between gap-3 text-xs">
+            <div class="flex items-start gap-2.5">
+              <span class="text-base">${n.type === 'new_like' ? '❤️' : n.type === 'new_comment' ? '💬' : n.type === 'new_follower' ? '👤' : '🔔'}</span>
+              <div>
+                <p class="text-white font-medium">${n.payload?.message || n.type}</p>
+                <p class="text-[10px] text-gray-500 mt-0.5">${new Date(n.createdAt).toLocaleString()}</p>
+              </div>
+            </div>
+            ${!n.isRead ? `
+              <button onclick="markNotificationRead('${n._id}', this)" class="text-[11px] text-tiktakCyan hover:underline whitespace-nowrap">
+                Đã đọc
+              </button>
+            ` : ''}
+          </div>
+        `).join('');
+
+        checkUnreadNotifications();
+      }
+    }
+
+    async function markNotificationRead(id, btnEl) {
+      const { ok } = await apiRequest(`/api/notifications/${id}/read`, 'PATCH');
+      if (ok) {
+        btnEl.parentElement.classList.remove('bg-gray-800/80', 'border-tiktakRed/50');
+        btnEl.parentElement.classList.add('bg-darkBg', 'border-borderDark', 'opacity-75');
+        btnEl.remove();
+        checkUnreadNotifications();
+      }
+    }
+
+    async function markAllNotificationsRead() {
+      const { ok } = await apiRequest('/api/notifications/read-all', 'POST');
+      if (ok) {
+        showToast('Thành công', 'Đã đánh dấu tất cả thông báo là đã đọc.');
+        loadNotifications();
+      }
+    }
+
+    // ============================================
+    // TAB 5: ADMIN DASHBOARD
+    // ============================================
+    async function loadAdminData() {
+      if (!token || currentUser?.role !== 'admin') {
+        document.getElementById('tab-admin').innerHTML = `
+          <div class="p-8 text-center bg-cardBg rounded-lg border border-borderDark max-w-md mx-auto my-12">
+            <h3 class="text-base font-bold text-red-400 mb-2">Quyền truy cập bị từ chối</h3>
+            <p class="text-xs text-gray-400 mb-4">Bạn phải đăng nhập bằng tài khoản Admin (ví dụ: admin@tiktak.com) để sử dụng trang này.</p>
+            <button onclick="quickLogin('admin@tiktak.com', 'Admin@123456', 'admin')" class="px-4 py-2 bg-tiktakRed text-white text-xs font-bold rounded shadow hover:bg-rose-600">
+              Đăng nhập bằng tài khoản Admin ngay
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      // Stats
+      const statsRes = await apiRequest('/api/admin/stats');
+      if (statsRes.ok && statsRes.data.success) {
+        const s = statsRes.data.data;
+        document.getElementById('statUsers').innerText = s.totalUsers || 0;
+        document.getElementById('statVideos').innerText = s.totalVideos || 0;
+        document.getElementById('statViews').innerText = s.totalViews || 0;
+        document.getElementById('statPendingReports').innerText = s.pendingReports || 0;
+        document.getElementById('statFlagged').innerText = s.flaggedVideos || 0;
+      }
+
+      // Flagged Videos Queue
+      const flaggedRes = await apiRequest('/api/admin/videos/flagged');
+      const flaggedContainer = document.getElementById('flaggedVideosContainer');
+      if (flaggedRes.ok && flaggedRes.data.success) {
+        const list = flaggedRes.data.data || [];
+        if (!list.length) {
+          flaggedContainer.innerHTML = '<p class="text-xs text-green-400 text-center py-4">✅ Không có video nào bị gắn cờ cần xử lý.</p>';
+        } else {
+          flaggedContainer.innerHTML = list.map(v => `
+            <div class="p-3 bg-darkBg rounded border border-red-900/40 flex items-center justify-between gap-4 mb-2">
+              <div>
+                <h4 class="text-xs font-bold text-white">${v.title}</h4>
+                <p class="text-[11px] text-gray-400">Tác giả: @${v.userId?.username || 'user'} | Báo cáo: <span class="text-tiktakRed font-bold">${v.reportCount}</span></p>
+                <div class="text-[10px] text-orange-400 mt-1">
+                  Lý do: ${(v.reports || []).map(r => r.reason).join(', ') || 'Nhiều báo cáo'}
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="approveVideo('${v._id}')" class="px-3 py-1 bg-green-800 hover:bg-green-700 text-green-200 text-xs rounded font-medium">
+                  ✓ Duyệt (Bỏ cờ)
+                </button>
+                <button onclick="removeVideoAdmin('${v._id}')" class="px-3 py-1 bg-red-900 hover:bg-red-800 text-red-200 text-xs rounded font-medium">
+                  🗑️ Xoá vi phạm
+                </button>
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Users List
+      const usersRes = await apiRequest('/api/admin/users?limit=15');
+      const usersBody = document.getElementById('adminUsersTableBody');
+      if (usersRes.ok && usersRes.data.success) {
+        const users = usersRes.data.data || [];
+        usersBody.innerHTML = users.map(u => `
+          <tr class="hover:bg-darkBg/50">
+            <td class="p-2.5 font-bold text-white">@${u.username}</td>
+            <td class="p-2.5 text-gray-400">${u.email}</td>
+            <td class="p-2.5"><span class="badge ${u.role === 'admin' ? 'bg-red-900 text-red-200' : 'bg-gray-800 text-gray-300'}">${u.role}</span></td>
+            <td class="p-2.5">
+              ${u.bannedAt ? '<span class="text-red-400 font-semibold">Đã khoá</span>' : '<span class="text-green-400">Hoạt động</span>'}
+              ${u.isVerified ? '<span class="text-blue-400 ml-1">✓</span>' : ''}
+            </td>
+            <td class="p-2.5 text-right space-x-1">
+              ${u.bannedAt ? `
+                <button onclick="unbanUser('${u._id}')" class="px-2 py-0.5 bg-green-900/60 hover:bg-green-800 text-green-200 rounded text-[11px]">Mở khoá</button>
+              ` : `
+                <button onclick="banUser('${u._id}')" class="px-2 py-0.5 bg-red-950 hover:bg-red-900 text-red-300 rounded text-[11px]">Khoá</button>
+              `}
+              ${!u.isVerified ? `
+                <button onclick="verifyUser('${u._id}')" class="px-2 py-0.5 bg-blue-900/60 hover:bg-blue-800 text-blue-200 rounded text-[11px]">Verify</button>
+              ` : ''}
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      // Audit Logs
+      const auditRes = await apiRequest('/api/admin/audit-logs?limit=15');
+      const auditBody = document.getElementById('adminAuditLogsBody');
+      if (auditRes.ok && auditRes.data.success) {
+        const logs = auditRes.data.data || [];
+        auditBody.innerHTML = logs.map(l => `
+          <tr class="hover:bg-darkBg/50">
+            <td class="p-2.5 font-bold text-gray-300">@${l.adminId?.username || 'admin'}</td>
+            <td class="p-2.5 text-tiktakCyan">${l.action}</td>
+            <td class="p-2.5 text-gray-400">${l.targetType || '-'}: ${l.targetId || '-'}</td>
+            <td class="p-2.5 text-gray-500">${new Date(l.createdAt).toLocaleString()}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="4" class="p-4 text-center text-gray-500">Chưa có nhật ký nào.</td></tr>';
+      }
+    }
+
+    async function approveVideo(id) {
+      const { ok } = await apiRequest(`/api/admin/videos/${id}/approve`, 'POST');
+      if (ok) { showToast('Thành công', 'Đã duyệt video'); loadAdminData(); }
+    }
+
+    async function removeVideoAdmin(id) {
+      if (!confirm('Xoá video vi phạm này?')) return;
+      const { ok } = await apiRequest(`/api/admin/videos/${id}`, 'DELETE');
+      if (ok) { showToast('Đã xoá', 'Video đã bị gỡ bỏ'); loadAdminData(); }
+    }
+
+    async function banUser(id) {
+      const reason = prompt('Lý do khoá tài khoản:', 'Vi phạm chính sách');
+      if (!reason) return;
+      const { ok } = await apiRequest(`/api/admin/users/${id}/ban`, 'POST', { reason });
+      if (ok) { showToast('Đã khoá', 'User đã bị ban'); loadAdminData(); }
+    }
+
+    async function unbanUser(id) {
+      const { ok } = await apiRequest(`/api/admin/users/${id}/unban`, 'POST');
+      if (ok) { showToast('Đã mở khoá', 'User đã được gỡ ban'); loadAdminData(); }
+    }
+
+    async function verifyUser(id) {
+      const { ok } = await apiRequest(`/api/admin/users/${id}/verify`, 'POST');
+      if (ok) { showToast('Đã xác thực', 'User đã được gắn tích xanh'); loadAdminData(); }
+    }
+
+    // ============================================
+    // TAB 6: MINI POSTMAN RUNNER
+    // ============================================
+    async function sendCustomRequest() {
+      const method = document.getElementById('reqMethod').value;
+      const url = document.getElementById('reqUrl').value.trim();
+      const bodyText = document.getElementById('reqBody').value.trim();
+      const viewer = document.getElementById('resViewer');
+      const statusBadge = document.getElementById('resStatusBadge');
+      const timeBadge = document.getElementById('resTimeBadge');
+
+      let parsedBody = null;
+      if (bodyText && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
+        try {
+          parsedBody = JSON.parse(bodyText);
+        } catch {
+          return showToast('Lỗi cú pháp', 'Body JSON không hợp lệ!', true);
+        }
+      }
+
+      viewer.innerText = 'Đang gửi request...';
+      const t0 = performance.now();
+      const { status, ok, data } = await apiRequest(url, method, parsedBody);
+      const latency = Math.round(performance.now() - t0);
+
+      statusBadge.innerText = `${status} ${ok ? 'OK' : 'ERR'}`;
+      statusBadge.className = `badge ${ok ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'}`;
+      statusBadge.classList.remove('hidden');
+
+      timeBadge.innerText = `${latency} ms`;
+      viewer.innerText = JSON.stringify(data, null, 2);
+    }
+
+    function copyResponse() {
+      const text = document.getElementById('resViewer').innerText;
+      navigator.clipboard.writeText(text);
+      showToast('Đã copy', 'JSON response đã lưu vào clipboard');
+    }
+
+    // ============================================
+    // VIDEO UPLOAD FUNCTIONS
+    // ============================================
+    function toggleUploadBox() {
+      const box = document.getElementById('uploadBox');
+      box.classList.toggle('hidden');
+    }
+
+    async function submitVideoUpload() {
+      if (!token) return showToast('Yêu cầu đăng nhập', 'Bạn cần đăng nhập trước khi tải video lên.', true);
+      const fileInput = document.getElementById('uploadFileInput');
+      if (!fileInput.files || !fileInput.files[0]) {
+        return showToast('Chưa chọn file', 'Vui lòng chọn 1 file video.', true);
+      }
+
+      const file = fileInput.files[0];
+      const title = document.getElementById('uploadTitleInput').value.trim();
+      const description = document.getElementById('uploadDescInput').value.trim();
+      const hashtags = document.getElementById('uploadTagsInput').value.trim();
+
+      const formData = new FormData();
+      formData.append('video', file);
+      if (title) formData.append('title', title);
+      if (description) formData.append('description', description);
+      if (hashtags) formData.append('hashtags', hashtags);
+
+      const progressContainer = document.getElementById('uploadProgressContainer');
+      const progressBar = document.getElementById('uploadProgressBar');
+      const statusText = document.getElementById('uploadStatusText');
+      const percentText = document.getElementById('uploadPercentText');
+      const submitBtn = document.getElementById('uploadSubmitBtn');
+
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = '30%';
+      percentText.innerText = '30%';
+      statusText.innerText = 'Đang tải file lên MinIO storage...';
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || 'Lỗi tải video');
+        }
+
+        progressBar.style.width = '70%';
+        percentText.innerText = '70%';
+        statusText.innerText = 'Đang xếp hàng đợi xử lý transcode...';
+
+        const jobId = data.data.jobId;
+        if (jobId) {
+          const evtSource = new EventSource(`${API_BASE}/api/upload/${jobId}/progress`);
+          evtSource.onmessage = (event) => {
+            try {
+              const progress = JSON.parse(event.data);
+              progressBar.style.width = `${progress.percent}%`;
+              percentText.innerText = `${progress.percent}%`;
+              statusText.innerText = progress.message || 'Đang xử lý...';
+
+              if (progress.status === 'completed' || progress.percent >= 100) {
+                evtSource.close();
+                showToast('Thành công', 'Video đã đăng và xử lý thành công!');
+                submitBtn.disabled = false;
+                fileInput.value = '';
+                document.getElementById('uploadTitleInput').value = '';
+                document.getElementById('uploadDescInput').value = '';
+                document.getElementById('uploadTagsInput').value = '';
+                setTimeout(() => {
+                  progressContainer.classList.add('hidden');
+                  toggleUploadBox();
+                  loadFeed('for-you');
+                }, 1200);
+              } else if (progress.status === 'failed') {
+                evtSource.close();
+                showToast('Lỗi xử lý', progress.message, true);
+                submitBtn.disabled = false;
+              }
+            } catch (err) {}
+          };
+          evtSource.onerror = () => {
+            evtSource.close();
+            submitBtn.disabled = false;
+            loadFeed('for-you');
+          };
+        } else {
+          progressBar.style.width = '100%';
+          showToast('Thành công', 'Video đã đăng thành công!');
+          submitBtn.disabled = false;
+          setTimeout(() => {
+            progressContainer.classList.add('hidden');
+            toggleUploadBox();
+            loadFeed('for-you');
+          }, 1000);
+        }
+      } catch (err) {
+        showToast('Tải video thất bại', err.message, true);
+        submitBtn.disabled = false;
+        progressContainer.classList.add('hidden');
+      }
+    }
+
+    // Auto initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      checkMyProfile();
+      loadFeed('for-you');
+    });
+  </script>
+</body>
+</html>

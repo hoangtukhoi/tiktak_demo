@@ -1,30 +1,155 @@
 const videoService = require('../services/video.service');
-const { success } = require('../utils/apiResponse');
+const Like = require('../models/Like');
+const Video = require('../models/Video');
+const { success, error, paginated } = require('../utils/apiResponse');
+const notificationService = require('../services/notification.service');
+
+// ─── Video CRUD ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/videos
+ * Video creation is handled by the upload route (multipart/form-data + S3).
+ * This stub returns 501 so accidental direct calls fail clearly.
+ */
 exports.createVideo = async (req, res) => {
-  const video = await videoService.createVideo(req.user._id, req.body);
-  success(res, video, 201);
+  return res.status(400).json({ success: false, message: 'Vui lòng sử dụng endpoint POST /api/upload với định dạng multipart/form-data để tải video lên.' });
 };
+
+/**
+ * GET /api/videos/:id
+ * Fetch a single video. Authenticated users get an isLiked flag.
+ */
 exports.getVideo = async (req, res) => {
   const video = await videoService.getVideoById(req.params.id, req.user?._id);
   success(res, video);
 };
+
+/**
+ * PATCH /api/videos/:id
+ * Update video metadata. Only the owner may call this.
+ */
 exports.updateVideo = async (req, res) => {
   const video = await videoService.updateVideo(req.params.id, req.user._id, req.body);
   success(res, video);
 };
+
+/**
+ * DELETE /api/videos/:id
+ * Soft-delete (owner) or hard-delete (admin/moderator).
+ */
 exports.deleteVideo = async (req, res) => {
-  await videoService.deleteVideo(req.params.id, req.user._id);
-  success(res, null, 200, 'Deleted');
+  await videoService.deleteVideo(req.params.id, req.user._id, req.user.role);
+  success(res, null, 200, 'Video deleted successfully');
 };
-exports.likeVideo = async (req, res) => { success(res, null); };
-exports.recordView = async (req, res) => { success(res, null); };
-exports.getForYouFeed = async (req, res) => { success(res, await videoService.getTrendingVideos()); };
-exports.getFollowingFeed = async (req, res) => { success(res, []); };
-exports.searchVideos = async (req, res) => {
-  const videos = await videoService.searchVideos(req.query.q, req.query.page, req.query.limit);
-  success(res, videos);
+
+// ─── Engagement ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/videos/:id/like
+ * Toggle like on a video.
+ *   • Already liked → remove Like doc, decrement likeCount
+ *   • Not liked    → create Like doc, increment likeCount, send notification
+ */
+exports.likeVideo = async (req, res) => {
+  const videoId = req.params.id;
+  const userId = req.user._id;
+
+  // Check if the user has already liked this video
+  const existingLike = await Like.findOne({
+    userId,
+    targetId: videoId,
+    targetType: 'video',
+  });
+
+  if (existingLike) {
+    // ── Unlike ────────────────────────────────────────────────────────────────
+    await existingLike.deleteOne();
+    await Video.findByIdAndUpdate(videoId, { $inc: { likeCount: -1 } });
+    return success(res, { liked: false }, 200, 'Like removed');
+  }
+
+  // ── Like ──────────────────────────────────────────────────────────────────
+  await Like.create({ userId, targetId: videoId, targetType: 'video' });
+  const video = await Video.findByIdAndUpdate(
+    videoId,
+    { $inc: { likeCount: 1 } },
+    { new: true }
+  ).populate('userId', 'username avatarUrl isVerified');
+
+  if (!video) return error(res, 'Video not found', 404);
+
+  // Send notification to the video owner (skip if liker is the owner)
+  if (String(video.userId._id) !== String(userId)) {
+    notificationService
+      .createNotification(video.userId._id, 'new_like', {
+        actorId: userId,
+        actorUsername: req.user.username,
+        actorAvatar: req.user.avatarUrl,
+        videoId: video._id,
+        videoThumbnail: video.thumbnailUrl,
+      })
+      .catch((err) => console.error('[likeVideo] notification error:', err));
+  }
+
+  return success(res, { liked: true, likeCount: video.likeCount }, 200, 'Like added');
 };
+
+/**
+ * POST /api/videos/:id/view
+ * Record a view event. Body may contain { watchTimeMs }.
+ */
+exports.recordView = async (req, res) => {
+  const watchTimeMs = Number(req.body?.watchTimeMs) || 0;
+  await videoService.recordView(req.params.id, watchTimeMs);
+  success(res, null, 200, 'View recorded');
+};
+
+// ─── Internal (pipeline callback) ────────────────────────────────────────────
+
+/**
+ * PATCH /api/videos/:id/urls
+ * Called by the transcoding pipeline to update HLS/thumbnail URLs after processing.
+ * Not authenticated via user token; protected at the network/API-key layer instead.
+ */
 exports.updateVideoUrls = async (req, res) => {
   const video = await videoService.updateVideoUrls(req.params.id, req.body);
   success(res, video);
+};
+
+// ─── Discovery ────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/videos/search?q=&cursor=&limit=
+ * Full-text search with cursor-based pagination.
+ */
+exports.searchVideos = async (req, res) => {
+  const { q, cursor, limit } = req.query;
+  const result = await videoService.searchVideos(q, cursor, Number(limit) || 12);
+  paginated(res, result.videos, { nextCursor: result.nextCursor });
+};
+
+/**
+ * GET /api/videos/hashtags/trending?limit=
+ * Return the most-used hashtags in the last 7 days.
+ */
+exports.getTrendingHashtags = async (req, res) => {
+  const limit = Number(req.query.limit) || 10;
+  const hashtags = await videoService.getTrendingHashtags(limit);
+  success(res, hashtags);
+};
+
+// ─── Moderation ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/videos/:id/report
+ * Submit a report for a video. Body: { reason }
+ * A user may only report the same video once.
+ */
+exports.reportVideo = async (req, res) => {
+  const { reason } = req.body;
+
+  if (!reason) return error(res, 'reason is required', 400);
+
+  const report = await videoService.reportVideo(req.params.id, req.user._id, reason);
+  success(res, report, 201, 'Report submitted');
 };
