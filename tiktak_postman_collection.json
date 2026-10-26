@@ -1,0 +1,645 @@
+{
+  "info": {
+    "_postman_id": "c1f7a28e-5b1d-4071-87a4-tiktak-api-collection",
+    "name": "TikTak API Collection",
+    "description": "Toàn bộ API của TikTak Backend (Auth, Feed, Video, Comment, User, Notification, Admin).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000/api",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "video_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "comment_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Đăng ký (Register)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"test_user_01\",\n  \"email\": \"test01@tiktak.com\",\n  \"password\": \"User@123456\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Đăng nhập - User Alice (Login)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data) {",
+                  "    pm.collectionVariables.set('token', res.data.accessToken);",
+                  "    pm.collectionVariables.set('refresh_token', res.data.refreshToken);",
+                  "    console.log('✅ Đã tự động lưu accessToken vào biến collection {{token}}');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@tiktak.com\",\n  \"password\": \"User@123456\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Đăng nhập - Admin (Login Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data) {",
+                  "    pm.collectionVariables.set('token', res.data.accessToken);",
+                  "    pm.collectionVariables.set('refresh_token', res.data.refreshToken);",
+                  "    console.log('✅ Đã lưu token Admin vào {{token}}');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@tiktak.com\",\n  \"password\": \"Admin@123456\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Xem thông tin tài khoản hiện tại (Get Me)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/auth/me", "host": ["{{base_url}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Cấp lại Access Token (Refresh Token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data) {",
+                  "    pm.collectionVariables.set('token', res.data.accessToken);",
+                  "    pm.collectionVariables.set('refresh_token', res.data.refreshToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/refresh", "host": ["{{base_url}}"], "path": ["auth", "refresh"] }
+          }
+        },
+        {
+          "name": "Đăng xuất (Logout)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/logout", "host": ["{{base_url}}"], "path": ["auth", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Upload Video",
+      "item": [
+        {
+          "name": "Tải lên video mới (Upload Video)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data) {",
+                  "    if (res.data.videoId) pm.collectionVariables.set('video_id', res.data.videoId);",
+                  "    if (res.data.jobId) pm.collectionVariables.set('job_id', res.data.jobId);",
+                  "    console.log('✅ Đã lưu video_id và job_id mới');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "video", "type": "file", "src": "", "description": "Chọn file mp4, mov, webm..." },
+                { "key": "title", "value": "Video test từ Postman", "type": "text" },
+                { "key": "description", "value": "Đây là video được upload qua API /api/upload", "type": "text" },
+                { "key": "hashtags", "value": "coding, test, tiktak", "type": "text" },
+                { "key": "isPrivate", "value": "false", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/upload", "host": ["{{base_url}}"], "path": ["upload"] }
+          }
+        },
+        {
+          "name": "Theo dõi tiến trình transcode (SSE Stream Progress)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/upload/{{job_id}}/progress", "host": ["{{base_url}}"], "path": ["upload", "{{job_id}}", "progress"] }
+          }
+        },
+        {
+          "name": "Lấy presigned URL upload S3 (Presign)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"extension\": \"mp4\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/upload/presign", "host": ["{{base_url}}"], "path": ["upload", "presign"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Feed & Video",
+      "item": [
+        {
+          "name": "Feed Dành cho bạn (For You)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.length > 0) {",
+                  "    pm.collectionVariables.set('video_id', res.data[0]._id);",
+                  "    console.log('✅ Đã tự động lưu video_id mẫu vào {{video_id}}: ' + res.data[0]._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/feed/for-you?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["feed", "for-you"],
+              "query": [{ "key": "limit", "value": "10" }, { "key": "cursor", "value": "", "disabled": true }]
+            }
+          }
+        },
+        {
+          "name": "Feed Đang theo dõi (Following)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/feed/following?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["feed", "following"],
+              "query": [{ "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Chi tiết video (Get Video Detail)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}"] }
+          }
+        },
+        {
+          "name": "Tìm kiếm video (Search Videos)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/videos/search?q=MacBook&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["videos", "search"],
+              "query": [{ "key": "q", "value": "MacBook" }, { "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Hashtags thịnh hành (Trending Hashtags)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/videos/hashtags/trending?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["videos", "hashtags", "trending"],
+              "query": [{ "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Thích / Bỏ thích Video (Like/Unlike Video Toggle)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}/like", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}", "like"] }
+          }
+        },
+        {
+          "name": "Ghi nhận lượt xem (Record View)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"watchTimeMs\": 15000\n}"
+            },
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}/view", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}", "view"] }
+          }
+        },
+        {
+          "name": "Báo cáo video vi phạm (Report Video)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"spam\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}/report", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}", "report"] }
+          }
+        },
+        {
+          "name": "Cập nhật video (Update Video)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Tiêu đề video mới cập nhật\",\n  \"description\": \"Mô tả mới\",\n  \"isPrivate\": false\n}"
+            },
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}"] }
+          }
+        },
+        {
+          "name": "Xoá video (Delete Video)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/videos/{{video_id}}", "host": ["{{base_url}}"], "path": ["videos", "{{video_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Comments",
+      "item": [
+        {
+          "name": "Lấy danh sách bình luận (Get Comments)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.length > 0) {",
+                  "    pm.collectionVariables.set('comment_id', res.data[0]._id);",
+                  "    console.log('✅ Đã lưu comment_id mẫu: ' + res.data[0]._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/comments/video/{{video_id}}?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["comments", "video", "{{video_id}}"],
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Đăng bình luận gốc (Create Comment)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoId\": \"{{video_id}}\",\n  \"content\": \"Video này làm đỉnh quá bạn ơi! 🔥\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/comments", "host": ["{{base_url}}"], "path": ["comments"] }
+          }
+        },
+        {
+          "name": "Trả lời bình luận (Reply to Comment)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoId\": \"{{video_id}}\",\n  \"parentId\": \"{{comment_id}}\",\n  \"content\": \"Đồng quan điểm với bác luôn! 👏\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/comments", "host": ["{{base_url}}"], "path": ["comments"] }
+          }
+        },
+        {
+          "name": "Xem các phản hồi của bình luận (Get Replies)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/comments/{{comment_id}}/replies", "host": ["{{base_url}}"], "path": ["comments", "{{comment_id}}", "replies"] }
+          }
+        },
+        {
+          "name": "Thích / Bỏ thích bình luận (Like Comment Toggle)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/comments/{{comment_id}}/like", "host": ["{{base_url}}"], "path": ["comments", "{{comment_id}}", "like"] }
+          }
+        },
+        {
+          "name": "Xoá bình luận (Delete Comment)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/comments/{{comment_id}}", "host": ["{{base_url}}"], "path": ["comments", "{{comment_id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Users & Follow",
+      "item": [
+        {
+          "name": "Tìm kiếm người dùng (Search Users)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/users/search?q=alice",
+              "host": ["{{base_url}}"],
+              "path": ["users", "search"],
+              "query": [{ "key": "q", "value": "alice" }]
+            }
+          }
+        },
+        {
+          "name": "Xem trang cá nhân user (Get Profile)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/users/alice_dev", "host": ["{{base_url}}"], "path": ["users", "alice_dev"] }
+          }
+        },
+        {
+          "name": "Theo dõi / Huỷ theo dõi user (Follow / Unfollow Toggle)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/users/alice_dev/follow", "host": ["{{base_url}}"], "path": ["users", "alice_dev", "follow"] }
+          }
+        },
+        {
+          "name": "Lấy video của một user (Get User Videos)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/users/alice_dev/videos?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["users", "alice_dev", "videos"],
+              "query": [{ "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Cập nhật hồ sơ của tôi (Update Profile)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bio\": \"Lập trình viên đam mê công nghệ và làm video ngắn 🚀\",\n  \"avatarUrl\": \"https://picsum.photos/200/200\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/users/me", "host": ["{{base_url}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "Xoá tài khoản của tôi (Delete Account)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/users/me", "host": ["{{base_url}}"], "path": ["users", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Notifications",
+      "item": [
+        {
+          "name": "Lấy danh sách thông báo (Get Notifications)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/notifications?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["notifications"],
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Đếm số thông báo chưa đọc (Unread Count)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/notifications/unread-count", "host": ["{{base_url}}"], "path": ["notifications", "unread-count"] }
+          }
+        },
+        {
+          "name": "Đánh dấu đã đọc một thông báo (Mark As Read)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{base_url}}/notifications/NOTIFICATION_ID/read", "host": ["{{base_url}}"], "path": ["notifications", "NOTIFICATION_ID", "read"] }
+          }
+        },
+        {
+          "name": "Đánh dấu tất cả đã đọc (Mark All As Read)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/notifications/read-all", "host": ["{{base_url}}"], "path": ["notifications", "read-all"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Admin (Yêu cầu đăng nhập tài khoản Admin)",
+      "item": [
+        {
+          "name": "Thống kê tổng quan (Admin Stats)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/admin/stats", "host": ["{{base_url}}"], "path": ["admin", "stats"] }
+          }
+        },
+        {
+          "name": "Danh sách người dùng (Get Users)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/users?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "role", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Khoá tài khoản (Ban User)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Vi phạm tiêu chuẩn cộng đồng về spam nội dung\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/admin/users/USER_ID/ban", "host": ["{{base_url}}"], "path": ["admin", "users", "USER_ID", "ban"] }
+          }
+        },
+        {
+          "name": "Mở khoá tài khoản (Unban User)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/admin/users/USER_ID/unban", "host": ["{{base_url}}"], "path": ["admin", "users", "USER_ID", "unban"] }
+          }
+        },
+        {
+          "name": "Xác thực tài khoản - Tích xanh (Verify User)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/admin/users/USER_ID/verify", "host": ["{{base_url}}"], "path": ["admin", "users", "USER_ID", "verify"] }
+          }
+        },
+        {
+          "name": "Hàng đợi video bị gắn cờ (Flagged Videos Queue)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/admin/videos/flagged", "host": ["{{base_url}}"], "path": ["admin", "videos", "flagged"] }
+          }
+        },
+        {
+          "name": "Duyệt video - Bỏ cờ vi phạm (Approve Video)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/admin/videos/{{video_id}}/approve", "host": ["{{base_url}}"], "path": ["admin", "videos", "{{video_id}}", "approve"] }
+          }
+        },
+        {
+          "name": "Xoá video vi phạm (Remove Video)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/admin/videos/{{video_id}}", "host": ["{{base_url}}"], "path": ["admin", "videos", "{{video_id}}"] }
+          }
+        },
+        {
+          "name": "Danh sách video trong hệ thống (Get All Videos)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/videos?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "videos"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "ready", "disabled": true },
+                { "key": "moderationStatus", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Nhật ký thao tác Admin (Audit Logs)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/audit-logs?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "audit-logs"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "50" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
