@@ -1,15 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* { font-family: 'Inter', sans-serif; box-sizing: border-box; }
-body { background: #0a0a0a; color: white; margin: 0; overflow-x: hidden; }
+@layer base {
+  :root { color-scheme: dark; }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-ink text-paper font-sans antialiased;
+    overflow: hidden;
+    font-optical-sizing: auto;
+  }
+  ::selection { @apply bg-lime text-ink; }
+  h1, h2, h3 { letter-spacing: -0.035em; line-height: 1.02; }
+  :focus-visible { outline: 2px solid theme('colors.lime.DEFAULT'); outline-offset: 2px; border-radius: 8px; }
+  input, textarea, select { font: inherit; }
+}
 
-.feed-container { height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
-.feed-container::-webkit-scrollbar { display: none; }
-.feed-item { height: 100dvh; scroll-snap-align: start; position: relative; overflow: hidden; }
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-lime px-5 py-2.5 font-bold text-ink
+           transition duration-300 ease-spring hover:-translate-y-0.5 hover:-rotate-1 active:scale-95
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 font-semibold text-paper
+           ring-1 ring-inset ring-ink-500 transition duration-300 ease-out hover:bg-ink-700 active:scale-95
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .input {
+    @apply w-full rounded-2xl border border-ink-500 bg-ink-800 px-4 py-3 text-paper placeholder:text-paper-mute
+           outline-none transition duration-200 focus:border-lime focus:ring-4 focus:ring-lime/15;
+  }
+  .label { @apply font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-paper-dim; }
+  .card { @apply rounded-3xl border border-ink-600 bg-ink-800; }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-ink-500 bg-ink-800 px-3.5 py-1.5 text-sm font-semibold
+           transition duration-300 ease-out hover:-translate-y-0.5 hover:border-lime hover:bg-lime hover:text-ink;
+  }
+  .skeleton {
+    background: linear-gradient(100deg, theme('colors.ink.700') 30%, theme('colors.ink.600') 50%, theme('colors.ink.700') 70%);
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+  .grain::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .14; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .text-shadow { text-shadow: 0 1px 12px rgb(0 0 0 / .55); }
+}
 
-.glass { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08); }
-.gradient-text { background: linear-gradient(135deg, #7c3aed, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-.gradient-bg { background: linear-gradient(135deg, #7c3aed, #ec4899); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

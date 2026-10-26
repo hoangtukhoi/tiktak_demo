@@ -1,46 +1,40 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import useAuthStore from '../store/slices/authSlice';
+import useNotificationStore from '../store/slices/notificationSlice';
 import * as authApi from '../api/auth.api';
 
 export default function useAuth() {
-  const { user, isAuthenticated, setAuth, clearAuth } = useAuthStore();
-  const [isLoading, setIsLoading] = useState(false);
+  const { user, isAuthenticated, setAuth, clearAuth, setUser } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const login = async (email, password) => {
-    setIsLoading(true);
-    try {
-      const data = await authApi.login(email, password);
-      setAuth(data.user, data.accessToken, data.refreshToken);
-      toast.success('Đăng nhập thành công!');
-      navigate('/');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Đăng nhập thất bại');
-    } finally { setIsLoading(false); }
+  const signIn = async (email, password) => {
+    const r = await authApi.login(email, password);
+    setAuth(r.user, r.accessToken, r.refreshToken);
+    return r.user;
   };
 
-  const register = async (username, email, password) => {
-    setIsLoading(true);
-    try {
-      const data = await authApi.register(username, email, password);
-      setAuth(data.user, data.accessToken, data.refreshToken);
-      toast.success('Đăng ký thành công!');
-      navigate('/');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Đăng ký thất bại');
-    } finally { setIsLoading(false); }
+  const signUp = async (username, email, password) => {
+    const r = await authApi.register(username, email, password);
+    setAuth(r.user, r.accessToken, r.refreshToken);
+    return r.user;
   };
 
-  const logout = async () => {
-    try {
-      await authApi.logout(localStorage.getItem('refreshToken'));
-    } finally {
-      clearAuth();
-      navigate('/login');
-    }
+  const signOut = async () => {
+    try { await authApi.logout(localStorage.getItem('refreshToken')); } catch { /* token có thể đã hết hạn */ }
+    clearAuth();
+    useNotificationStore.getState().reset();
+    navigate('/login');
   };
 
-  return { user, isAuthenticated, isLoading, login, register, logout };
+  /** Dùng trước các hành động cần đăng nhập (like, comment, dịch...) */
+  const requireAuth = (msg = 'Đăng nhập để tiếp tục') => {
+    if (isAuthenticated) return true;
+    toast(msg);
+    navigate('/login', { state: { from: location.pathname } });
+    return false;
+  };
+
+  return { user, isAuthenticated, isAdmin: user?.role === 'admin', signIn, signUp, signOut, requireAuth, setUser };
 }
