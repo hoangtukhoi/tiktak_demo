@@ -1,6 +1,10 @@
-export default function Spinner({ size = 'md' }) {
-  const sizeClasses = { sm: 'h-4 w-4', md: 'h-8 w-8', lg: 'h-12 w-12' };
+export default function Spinner({ size = 24, className = '' }) {
   return (
-    <div className={`animate-spin rounded-full border-2 border-white/20 border-t-brand-from ${sizeClasses[size]}`} />
+    <span
+      role="status"
+      aria-label="Đang tải"
+      className={`inline-block animate-disc rounded-full border-2 border-current border-r-transparent ${className}`}
+      style={{ width: size, height: size, animationDuration: '0.7s' }}
+    />
   );
 }

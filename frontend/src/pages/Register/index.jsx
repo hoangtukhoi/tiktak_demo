@@ -1,39 +1,49 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import useAuth from '../../hooks/useAuth';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import toast from 'react-hot-toast';
 import Button from '../../components/common/Button';
+import useAuth from '../../hooks/useAuth';
+import { errMsg } from '../../api/axiosClient';
+import { AuthShell, Field } from '../Login';
 
 export default function Register() {
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const { register, isLoading } = useAuth();
+  const { signUp } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm();
 
-  const handleSubmit = (e) => { e.preventDefault(); register(username, email, password); };
+  const onSubmit = async ({ username, email, password }) => {
+    try {
+      const user = await signUp(username, email, password);
+      toast(`Chào @${user.username}! Tài khoản đã sẵn sàng`, { icon: '🎉' });
+      navigate(location.state?.from || '/', { replace: true });
+    } catch (e) {
+      toast.error(errMsg(e, 'Đăng ký thất bại'));
+    }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass p-8 rounded-2xl animate-fade-in">
-        <h1 className="text-3xl font-bold mb-8 text-center gradient-text">Đăng ký TikTak</h1>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-300">Tên người dùng</label>
-            <input type="text" value={username} onChange={e=>setUsername(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-brand-from transition" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-300">Email</label>
-            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-brand-from transition" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-300">Mật khẩu</label>
-            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:border-brand-from transition" />
-          </div>
-          <Button type="submit" loading={isLoading} className="mt-4 w-full">Đăng ký</Button>
-        </form>
-        <p className="mt-6 text-center text-sm text-gray-400">
-          Đã có tài khoản? <Link to="/login" className="text-brand-from hover:underline font-medium">Đăng nhập</Link>
-        </p>
-      </div>
-    </div>
+    <AuthShell title="Tạo tài khoản" subtitle="Một phút thôi. Sau đó đăng video và để AI dịch sang 10 ngôn ngữ.">
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-5" noValidate>
+        {/* Khớp Joi: username alphanum 3–30, email, password ≥ 6 */}
+        <Field label="Tên người dùng" autoComplete="username" placeholder="lapbuilds" error={errors.username?.message}
+          {...register('username', {
+            required: 'Nhập tên người dùng',
+            minLength: { value: 3, message: 'Tối thiểu 3 ký tự' },
+            maxLength: { value: 30, message: 'Tối đa 30 ký tự' },
+            pattern: { value: /^[a-zA-Z0-9]+$/, message: 'Chỉ dùng chữ và số, không dấu' },
+          })} />
+        <Field label="Email" type="email" autoComplete="email" placeholder="ban@email.com" error={errors.email?.message}
+          {...register('email', { required: 'Nhập email', pattern: { value: /\S+@\S+\.\S+/, message: 'Email không hợp lệ' } })} />
+        <Field label="Mật khẩu" type="password" autoComplete="new-password" placeholder="Ít nhất 6 ký tự" error={errors.password?.message}
+          {...register('password', { required: 'Nhập mật khẩu', minLength: { value: 6, message: 'Tối thiểu 6 ký tự' } })} />
+        <Field label="Nhập lại mật khẩu" type="password" autoComplete="new-password" placeholder="••••••" error={errors.confirm?.message}
+          {...register('confirm', { validate: (v) => v === watch('password') || 'Mật khẩu không khớp' })} />
+        <Button type="submit" loading={isSubmitting} className="w-full !py-3.5 text-[16px]">Đăng ký</Button>
+      </form>
+      <p className="mt-6 text-center text-paper-dim">
+        Đã có tài khoản? <Link to="/login" state={location.state} className="font-bold text-paper underline decoration-lime decoration-2 underline-offset-4">Đăng nhập</Link>
+      </p>
+    </AuthShell>
   );
 }
