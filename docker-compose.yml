@@ -80,8 +80,29 @@ services:
       "
     restart: 'no'
 
+  # ─────────────────────────────────────────
+  # AI service (FastAPI: Whisper + NLLB-200 + edge-tts) — lồng tiếng
+  # Lần đầu build lâu (~2 GB) và tải model (~3 GB) vào volume ai_models.
+  # Backend .env cần: AI_SERVICE_URL=http://localhost:8002, AI_MEDIA_BASE_URL=http://minio:9000
+  # ─────────────────────────────────────────
+  ai-service:
+    build: ./ai-service
+    container_name: tiktak_ai
+    restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AI_INTERNAL_KEY: ${INTERNAL_KEY:-internal_secret_key}
+      AI_WHISPER_MODEL: ${AI_WHISPER_MODEL:-small}
+      AI_MODEL_CACHE_DIR: /models
+    ports:
+      - '8002:8002'
+    volumes:
+      - ai_models:/models
+
 volumes:
   mongo_data:
   redis_data:
   minio_data:
-
+  ai_models:

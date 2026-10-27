@@ -18,7 +18,7 @@ const videoSchema = new mongoose.Schema(
     // Trạng thái xử lý
     status: {
       type: String,
-      enum: ['uploading', 'processing', 'ready', 'failed'],
+      enum: ['uploading', 'processing', 'ready', 'failed', 'deleted'],
       default: 'uploading',
     },
     // Kiểm duyệt

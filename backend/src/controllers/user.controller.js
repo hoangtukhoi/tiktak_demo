@@ -10,6 +10,19 @@ const Follow = require('../models/Follow');
 const videoService = require('../services/video.service');
 const notificationService = require('../services/notification.service');
 const { success, error, paginated } = require('../utils/apiResponse');
+const escapeRegex = require('../utils/escapeRegex');
+
+/**
+ * Frontend có chỗ gọi theo username (/users/:username), có chỗ theo _id
+ * (/users/:id/videos) → nhận cả hai.
+ */
+const findUserByParam = (param, projection) => {
+  const query = mongoose.Types.ObjectId.isValid(param) && String(param).length === 24
+    ? { $or: [{ _id: param }, { username: param }] }
+    : { username: param };
+  const q = User.findOne(query);
+  return projection ? q.select(projection) : q;
+};
 
 /**
  * GET /users/:username
@@ -22,7 +35,7 @@ exports.getProfile = async (req, res) => {
   try {
     const { username } = req.params;
 
-    const user = await User.findOne({ username }).lean();
+    const user = await findUserByParam(username).lean();
     if (!user) return error(res, 'User not found', 404);
 
     // Aggregate total likes across all user videos
@@ -112,17 +125,23 @@ exports.getUserVideos = async (req, res) => {
     const { cursor } = req.query;
 
     // Resolve username → _id so videoService can query by userId
-    const user = await User.findOne({ username }).select('_id').lean();
+    const user = await findUserByParam(username, '_id').lean();
     if (!user) return error(res, 'User not found', 404);
 
-    const videos = await videoService.getUserVideos(user._id, cursor, limit + 1);
+    if (cursor && !/^\d{1,6}$/.test(cursor) && !mongoose.Types.ObjectId.isValid(cursor)) {
+      return error(res, 'Invalid cursor', 400);
+    }
 
-    const hasMore = videos.length > limit;
-    if (hasMore) videos.pop();
+    // Service đã tự lấy limit+1 và tính nextCursor → chỉ cần truyền limit.
+    // Truyền thêm id người xem để chủ kênh thấy cả video private của mình.
+    const { videos, nextCursor } = await videoService.getUserVideos(
+      user._id,
+      cursor,
+      limit,
+      req.user?._id
+    );
 
-    const nextCursor = hasMore ? videos[videos.length - 1]._id : null;
-
-    return paginated(res, videos, { nextCursor, hasMore, limit });
+    return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor), limit });
   } catch (err) {
     console.error('[getUserVideos]', err);
     return error(res, 'Failed to fetch videos', 500);
@@ -142,7 +161,7 @@ exports.searchUsers = async (req, res) => {
     }
 
     const users = await User.find(
-      { username: { $regex: q.trim(), $options: 'i' } },
+      { username: { $regex: escapeRegex(q.trim().slice(0, 50)), $options: 'i' }, bannedAt: null },
       'username avatarUrl bio followerCount videoCount'
     )
       .limit(10)
@@ -222,4 +241,4 @@ exports.followUser = async (req, res) => {
     console.error('[followUser]', err);
     return error(res, 'Follow action failed', 500);
   }
-};
+};

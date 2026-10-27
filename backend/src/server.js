@@ -18,14 +18,19 @@ async function main() {
   if (typeof storageService.ensureBuckets === 'function') await storageService.ensureBuckets().catch(console.error);
 
   const server = http.createServer(app);
-  const io = new Server(server, { cors: { origin: process.env.FRONTEND_URL, credentials: true } });
+  const socketOrigins = (process.env.FRONTEND_URL || '').split(',').map((o) => o.trim()).filter(Boolean);
+  const io = new Server(server, { cors: { origin: socketOrigins, credentials: true } });
   initSocket(io);
 
-  startTranscodeWorker();
-  startDubbingWorker();
+  // Mặc định chạy worker chung process cho tiện dev.
+  // Khi chạy riêng `npm run worker`, đặt RUN_WORKERS_IN_API=false để tránh 2 nơi cùng xử lý job.
+  if (process.env.RUN_WORKERS_IN_API !== 'false') {
+    startTranscodeWorker();
+    startDubbingWorker();
+  }
 
   server.listen(PORT, () => {
     console.log(` Server running on http://localhost:${PORT}`);
   });
 }
-main().catch(err => { console.error(err); process.exit(1); });
+main().catch(err => { console.error(err); process.exit(1); });

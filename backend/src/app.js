@@ -13,7 +13,23 @@ require('./config/passport');
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: true, credentials: true }));
+// Chỉ cho phép frontend đã khai báo (FRONTEND_URL, có thể nhiều URL cách nhau dấu phẩy).
+// Khi dev, cho phép thêm mọi localhost/127.0.0.1.
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const isDevLocalhost = (origin) =>
+  process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin) || isDevLocalhost(origin)) return cb(null, true);
+      return cb(null, false);
+    },
+    credentials: true,
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -27,4 +43,4 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api', apiLimiter, routes);
 app.use(errorMiddleware);
 
-module.exports = app;
+module.exports = app;

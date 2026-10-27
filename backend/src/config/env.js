@@ -64,6 +64,8 @@ module.exports = {
   // Internal / AI service
   INTERNAL_KEY:    process.env.INTERNAL_KEY    || 'internal_secret_key',
   AI_SERVICE_URL:  process.env.AI_SERVICE_URL  || 'http://localhost:8002',
+  AI_MOCK:         process.env.AI_MOCK === 'true', // true = trả dữ liệu giả khi chưa có AI service
+  AI_MEDIA_BASE_URL: process.env.AI_MEDIA_BASE_URL || '', // VD http://minio:9000 khi AI service chạy trong Docker
 
   // Admin seed (optional)
   ADMIN_EMAIL:     process.env.ADMIN_EMAIL     || 'admin@tiktak.com',

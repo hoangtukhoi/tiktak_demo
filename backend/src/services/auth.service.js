@@ -1,5 +1,8 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+
+// Giới hạn số phiên đăng nhập lưu trên mỗi user (tránh mảng refreshTokens phình mãi)
+const MAX_SESSIONS = 10;
 const generateTokens = (userId, role) => {
   const accessToken = jwt.sign({ sub: userId, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '1h' });
   const refreshToken = jwt.sign({ sub: userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' });
@@ -10,8 +13,7 @@ exports.register = async (username, email, password) => {
   if (exists) throw Object.assign(new Error(exists.email === email ? 'Email đã được sử dụng' : 'Username đã tồn tại'), { statusCode: 409 });
   const user = await User.create({ username, email, password });
   const tokens = generateTokens(user._id, user.role);
-  user.refreshTokens = user.refreshTokens || [];
-  user.refreshTokens.push(tokens.refreshToken);
+  user.refreshTokens = [...(user.refreshTokens || []), tokens.refreshToken].slice(-MAX_SESSIONS);
   await user.save({ validateBeforeSave: false });
   return { user, ...tokens };
 };
@@ -22,8 +24,7 @@ exports.login = async (email, password) => {
   if (user.bannedAt)
     throw Object.assign(new Error('Tài khoản đã bị khoá'), { statusCode: 403 });
   const tokens = generateTokens(user._id, user.role);
-  user.refreshTokens = user.refreshTokens || [];
-  user.refreshTokens.push(tokens.refreshToken);
+  user.refreshTokens = [...(user.refreshTokens || []), tokens.refreshToken].slice(-MAX_SESSIONS);
   user.lastLoginAt = new Date();
   await user.save({ validateBeforeSave: false });
   return { user, ...tokens };
@@ -34,9 +35,12 @@ exports.refreshToken = async (token) => {
   const user = await User.findById(payload.sub).select('+refreshTokens');
   if (!user || !user.refreshTokens.includes(token))
     throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
+  if (user.bannedAt)
+    throw Object.assign(new Error('Tài khoản đã bị khoá'), { statusCode: 403 });
   const tokens = generateTokens(user._id, user.role);
   user.refreshTokens = user.refreshTokens.filter(t => t !== token);
   user.refreshTokens.push(tokens.refreshToken);
+  user.refreshTokens = user.refreshTokens.slice(-MAX_SESSIONS);
   await user.save({ validateBeforeSave: false });
   return tokens;
 };
@@ -57,4 +61,4 @@ exports.googleAuth = async (googleId, email, username, avatarUrl) => {
   const tokens = generateTokens(user._id, user.role);
   await User.findByIdAndUpdate(user._id, { $push: { refreshTokens: tokens.refreshToken } });
   return { user, ...tokens };
-};
+};

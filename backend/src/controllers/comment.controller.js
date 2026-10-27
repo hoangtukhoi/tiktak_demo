@@ -245,17 +245,17 @@ exports.deleteComment = async (req, res) => {
     comment.isDeleted = true;
     await comment.save();
 
-    // Decrement the appropriate counter
-    if (!comment.parentId) {
-      // Top-level comment: decrement video.commentCount (floor at 0)
-      await Video.findByIdAndUpdate(comment.videoId, {
-        $inc: { commentCount: -1 },
-      });
-    } else {
-      // Reply: decrement parent.replyCount (floor at 0)
-      await Comment.findByIdAndUpdate(comment.parentId, {
-        $inc: { replyCount: -1 },
-      });
+    // Lúc tạo, cả comment gốc lẫn reply đều +1 commentCount của video,
+    // nên lúc xoá cũng luôn -1 (không cho xuống âm).
+    await Video.updateOne(
+      { _id: comment.videoId, commentCount: { $gt: 0 } },
+      { $inc: { commentCount: -1 } }
+    );
+    if (comment.parentId) {
+      await Comment.updateOne(
+        { _id: comment.parentId, replyCount: { $gt: 0 } },
+        { $inc: { replyCount: -1 } }
+      );
     }
 
     return success(res, null, 200, 'Comment deleted');
@@ -292,7 +292,7 @@ exports.likeComment = async (req, res) => {
     if (existingLike) {
       // Unlike: remove the like document and decrement counter
       await existingLike.deleteOne();
-      await Comment.findByIdAndUpdate(id, { $inc: { likeCount: -1 } });
+      await Comment.updateOne({ _id: id, likeCount: { $gt: 0 } }, { $inc: { likeCount: -1 } });
       return success(res, { liked: false }, 200, 'Comment unliked');
     }
 
@@ -313,4 +313,4 @@ exports.likeComment = async (req, res) => {
     console.error('[likeComment]', err);
     return error(res, 'Failed to toggle like', 500);
   }
-};
+};

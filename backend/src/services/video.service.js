@@ -3,6 +3,13 @@ const Video = require('../models/Video');
 const Like = require('../models/Like');
 const Follow = require('../models/Follow');
 const Report = require('../models/Report');
+const User = require('../models/User');
+const Comment = require('../models/Comment');
+const AudioTrack = require('../models/AudioTrack');
+const redis = require('../config/redis');
+
+// Thời gian cache feed "For You" trong Redis (giây)
+const FEED_CACHE_TTL = Number(process.env.FEED_CACHE_TTL) || 60;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -12,7 +19,39 @@ const Report = require('../models/Report');
  * @param {string|undefined} cursor
  * @returns {Object}
  */
-const buildCursorQuery = (cursor) => (cursor ? { _id: { $lt: new mongoose.Types.ObjectId(cursor) } } : {});
+const buildCursorQuery = (cursor) => {
+  if (!cursor || isPageNumber(cursor)) return {};
+  if (!mongoose.Types.ObjectId.isValid(cursor)) httpError('Invalid cursor', 400);
+  return { _id: { $lt: new mongoose.Types.ObjectId(cursor) } };
+};
+
+/**
+ * Frontend gửi `cursor` là số trang (undefined → 0, rồi 1, 2, ...).
+ * Backend chấp nhận cả số trang lẫn ObjectId cursor (kiểu cũ).
+ */
+function isPageNumber(cursor) {
+  return cursor !== undefined && cursor !== null && /^\d{1,6}$/.test(String(cursor));
+}
+const pageOf = (cursor) => (isPageNumber(cursor) ? parseInt(cursor, 10) : 0);
+
+/**
+ * Phân trang chung cho các truy vấn sắp xếp theo _id giảm dần:
+ * - cursor là số trang → dùng skip
+ * - cursor là ObjectId → dùng _id < cursor
+ * nextCursor luôn trả về số trang kế tiếp (khớp cách frontend gọi).
+ */
+const findPaged = async (query, cursor, limit) => {
+  const page = pageOf(cursor);
+  const docs = await Video.find({ ...query, ...buildCursorQuery(cursor) })
+    .sort({ _id: -1 })
+    .skip(isPageNumber(cursor) ? page * limit : 0)
+    .limit(limit + 1)
+    .populate('userId', USER_PROJECTION)
+    .lean();
+  const hasMore = docs.length > limit;
+  const videos = hasMore ? docs.slice(0, limit) : docs;
+  return { videos, nextCursor: hasMore ? String(page + 1) : null };
+};
 
 /**
  * Throw a formatted HTTP error.
@@ -52,12 +91,21 @@ exports.createVideo = async (userId, data) => {
  * @param {string|undefined} currentUserId
  * @returns {Promise<Object>}
  */
-exports.getVideoById = async (id, currentUserId) => {
+exports.getVideoById = async (id, currentUserId, currentUserRole) => {
   const video = await Video.findById(id)
     .populate('userId', USER_PROJECTION)
     .lean();
 
   if (!video) httpError('Video not found', 404);
+
+  // Chỉ chủ video hoặc admin/moderator mới xem được video private,
+  // chưa xử lý xong, đã xoá hoặc đã bị gỡ. Người khác nhận 404.
+  const ownerId = video.userId?._id || video.userId;
+  const isOwner = currentUserId && String(ownerId) === String(currentUserId);
+  const isStaff = currentUserRole === 'admin' || currentUserRole === 'moderator';
+  const isPublic =
+    video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
+  if (!isPublic && !isOwner && !isStaff) httpError('Video not found', 404);
 
   // Attach isLiked flag when a viewer is authenticated
   if (currentUserId) {
@@ -113,17 +161,31 @@ exports.deleteVideo = async (id, userId, role = 'user') => {
   const isAdmin = role === 'admin' || role === 'moderator';
 
   if (isAdmin) {
-    // Admins can delete any video permanently
+    // Admins can delete any video permanently (kèm dữ liệu liên quan)
     const video = await Video.findByIdAndDelete(id);
     if (!video) httpError('Video not found', 404);
+    const comments = await Comment.find({ videoId: video._id }).select('_id').lean();
+    await Promise.all([
+      Like.deleteMany({ targetType: 'video', targetId: video._id }),
+      Like.deleteMany({ targetType: 'comment', targetId: { $in: comments.map((c) => c._id) } }),
+      Comment.deleteMany({ videoId: video._id }),
+      AudioTrack.deleteMany({ videoId: video._id }),
+      Report.deleteMany({ videoId: video._id }),
+    ]);
+    if (video.status === 'ready') {
+      await User.updateOne({ _id: video.userId, videoCount: { $gt: 0 } }, { $inc: { videoCount: -1 } });
+    }
   } else {
-    // Owners soft-delete
+    // Owners soft-delete: đánh dấu 'deleted' (không dùng 'failed' để
+    // phân biệt với video xử lý lỗi)
     const video = await Video.findOneAndUpdate(
-      { _id: id, userId },
-      { status: 'failed' },
-      { new: true }
+      { _id: id, userId, status: { $ne: 'deleted' } },
+      { status: 'deleted' }
     );
     if (!video) httpError('Video not found or you are not the owner', 404);
+    if (video.status === 'ready') {
+      await User.updateOne({ _id: userId, videoCount: { $gt: 0 } }, { $inc: { videoCount: -1 } });
+    }
   }
 };
 
@@ -140,26 +202,12 @@ exports.deleteVideo = async (id, userId, role = 'user') => {
 exports.getUserVideos = async (targetUserId, cursor, limit = 12, currentUserId) => {
   const isOwner = String(currentUserId) === String(targetUserId);
 
-  const query = {
-    userId: targetUserId,
-    status: 'ready',
-    ...buildCursorQuery(cursor),
-  };
+  const query = { userId: targetUserId, status: 'ready' };
 
   // Non-owners cannot see private videos
   if (!isOwner) query.isPrivate = false;
 
-  const videos = await Video.find(query)
-    .sort({ _id: -1 })
-    .limit(limit + 1) // fetch one extra to detect if there are more pages
-    .populate('userId', USER_PROJECTION)
-    .lean();
-
-  const hasMore = videos.length > limit;
-  const items = hasMore ? videos.slice(0, limit) : videos;
-  const nextCursor = hasMore ? String(items[items.length - 1]._id) : null;
-
-  return { videos: items, nextCursor };
+  return findPaged(query, cursor, limit);
 };
 
 /**
@@ -197,20 +245,8 @@ exports.searchVideos = async (q, cursor, limit = 12) => {
     status: 'ready',
     isPrivate: false,
     moderationStatus: { $in: ['approved', 'pending'] },
-    ...buildCursorQuery(cursor),
   };
-
-  const videos = await Video.find(query, { score: { $meta: 'textScore' } })
-    .sort({ _id: -1 })
-    .limit(limit + 1)
-    .populate('userId', USER_PROJECTION)
-    .lean();
-
-  const hasMore = videos.length > limit;
-  const items = hasMore ? videos.slice(0, limit) : videos;
-  const nextCursor = hasMore ? String(items[items.length - 1]._id) : null;
-
-  return { videos: items, nextCursor };
+  return findPaged(query, cursor, limit);
 };
 
 /**
@@ -305,60 +341,66 @@ exports.getFollowingFeed = async (userId, cursor, limit = 20) => {
     status: 'ready',
     isPrivate: false,
     moderationStatus: { $in: ['approved', 'pending'] },
-    ...buildCursorQuery(cursor),
   };
-
-  const videos = await Video.find(query)
-    .sort({ _id: -1 })
-    .limit(limit + 1)
-    .populate('userId', USER_PROJECTION)
-    .lean();
-
-  const hasMore = videos.length > limit;
-  const items = hasMore ? videos.slice(0, limit) : videos;
-  const nextCursor = hasMore ? String(items[items.length - 1]._id) : null;
-
-  return { videos: items, nextCursor };
+  return findPaged(query, cursor, limit);
 };
 
 /**
- * "For You" feed: a mix of trending videos (70 %) and videos from followed
- * accounts (30 %) for authenticated users, or pure trending for guests.
- * Results are deduplicated and returned with cursor-based pagination.
+ * "For You" feed: xếp hạng theo điểm tương tác có suy giảm theo thời gian.
+ * Với user đã đăng nhập, video của người họ follow được nhân hệ số ưu tiên.
+ *
+ * Vì sắp xếp theo điểm (không theo _id) nên cursor là SỐ TRANG ("1", "2", ...),
+ * khớp với cách frontend gọi (page.current). Kết quả được cache Redis 60 giây.
  *
  * @param {string|undefined} userId
- * @param {string|undefined} cursor
+ * @param {string|undefined} cursor  số trang (0-based)
  * @param {number} limit
  * @returns {Promise<{videos: Object[], nextCursor: string|null}>}
  */
 exports.getForYouFeed = async (userId, cursor, limit = 20) => {
-  const trendingSlots = userId ? Math.ceil(limit * 0.7) : limit;
-  const followingSlots = userId ? Math.floor(limit * 0.3) : 0;
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+  const page = pageOf(cursor);
+  const offset = page * safeLimit;
 
-  const baseQuery = {
-    status: 'ready',
-    isPrivate: false,
-    moderationStatus: { $in: ['approved', 'pending'] },
-    ...buildCursorQuery(cursor),
-  };
+  // Tính điểm cho toàn bộ video khá nặng → cache kết quả từng trang 60 giây.
+  // Redis lỗi thì vẫn tính trực tiếp, không làm hỏng request.
+  const cacheKey = `feed:foryou:${userId || 'guest'}:${page}:${safeLimit}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (err) {
+    console.warn('[feed] Redis cache read failed:', err.message);
+  }
+  const DECAY_LAMBDA = Math.log(2) / 72; // nửa vòng đời 72 giờ
+  const FOLLOW_BOOST = 2;
 
-  // ── Trending portion ──────────────────────────────────────────────────────
-  const DECAY_LAMBDA = Math.log(2) / 72;
+  let followingIds = [];
+  if (userId) {
+    const follows = await Follow.find({ followerId: userId }).select('followingId').lean();
+    followingIds = follows.map((f) => f.followingId);
+  }
 
-  const trendingDocs = await Video.aggregate([
-    { $match: baseQuery },
+  const docs = await Video.aggregate([
+    {
+      $match: {
+        status: 'ready',
+        isPrivate: false,
+        moderationStatus: { $in: ['approved', 'pending'] },
+      },
+    },
     {
       $addFields: {
+        // +1 để video mới chưa có tương tác vẫn có điểm > 0
         rawScore: {
           $add: [
+            1,
             '$likeCount',
             { $multiply: ['$viewCount', 0.1] },
             { $multiply: ['$commentCount', 0.5] },
           ],
         },
-        ageHours: {
-          $divide: [{ $subtract: [new Date(), '$createdAt'] }, 3_600_000],
-        },
+        ageHours: { $divide: [{ $subtract: [new Date(), '$createdAt'] }, 3_600_000] },
+        followBoost: { $cond: [{ $in: ['$userId', followingIds] }, FOLLOW_BOOST, 1] },
       },
     },
     {
@@ -366,13 +408,15 @@ exports.getForYouFeed = async (userId, cursor, limit = 20) => {
         trendScore: {
           $multiply: [
             '$rawScore',
+            '$followBoost',
             { $exp: { $multiply: [-DECAY_LAMBDA, '$ageHours'] } },
           ],
         },
       },
     },
-    { $sort: { trendScore: -1 } },
-    { $limit: trendingSlots },
+    { $sort: { trendScore: -1, _id: -1 } },
+    { $skip: offset },
+    { $limit: safeLimit + 1 },
     {
       $lookup: {
         from: 'users',
@@ -383,40 +427,19 @@ exports.getForYouFeed = async (userId, cursor, limit = 20) => {
       },
     },
     { $addFields: { userId: { $arrayElemAt: ['$userDetails', 0] } } },
-    { $project: { userDetails: 0, rawScore: 0, ageHours: 0, trendScore: 0 } },
+    { $project: { userDetails: 0, rawScore: 0, ageHours: 0, trendScore: 0, followBoost: 0 } },
   ]);
 
-  let combined = [...trendingDocs];
+  const hasMore = docs.length > safeLimit;
+  const videos = hasMore ? docs.slice(0, safeLimit) : docs;
+  const nextCursor = hasMore ? String(page + 1) : null;
+  const result = { videos, nextCursor };
 
-  // ── Following portion (authenticated only) ────────────────────────────────
-  if (userId && followingSlots > 0) {
-    const follows = await Follow.find({ followerId: userId }).select('followingId').lean();
-    const followingIds = follows.map((f) => f.followingId);
+  redis
+    .set(cacheKey, JSON.stringify(result), 'EX', FEED_CACHE_TTL)
+    .catch((err) => console.warn('[feed] Redis cache write failed:', err.message));
 
-    if (followingIds.length > 0) {
-      // Exclude videos already present in trending results
-      const trendingIds = new Set(trendingDocs.map((v) => String(v._id)));
-
-      const followingVideos = await Video.find({
-        ...baseQuery,
-        userId: { $in: followingIds },
-        _id: { $nin: [...trendingIds].map((id) => new mongoose.Types.ObjectId(id)) },
-      })
-        .sort({ _id: -1 })
-        .limit(followingSlots)
-        .populate('userId', USER_PROJECTION)
-        .lean();
-
-      combined = [...combined, ...followingVideos];
-    }
-  }
-
-  // Apply limit and build next cursor
-  const hasMore = combined.length > limit;
-  const items = hasMore ? combined.slice(0, limit) : combined;
-  const nextCursor = items.length > 0 ? String(items[items.length - 1]._id) : null;
-
-  return { videos: items, nextCursor };
+  return result;
 };
 
 /**
@@ -498,4 +521,4 @@ exports.reportVideo = async (videoId, reporterId, reason) => {
   }
 
   return report;
-};
+};

@@ -7,10 +7,21 @@ const { transcodeQueue, getProgress } = require('../jobs/queue');
 const { success, error } = require('../utils/apiResponse');
 const { MAX_VIDEO_SIZE_MB } = require('../utils/constants');
 
+const parseBool = (v, fallback) => (v === undefined ? fallback : v === true || v === 'true');
+
 function parseHashtags(raw) {
   if (!raw) return [];
-  const list = Array.isArray(raw) ? raw : String(raw).split(/[,\s]+/);
-  return [...new Set(list.map((t) => t.replace(/^#/, '').trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+  let list = raw;
+  // Frontend gửi mảng dạng chuỗi JSON trong form-data: '["a","b"]'
+  if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      list = raw;
+    }
+  }
+  list = Array.isArray(list) ? list : String(list).split(/[,\s]+/);
+  return [...new Set(list.map((t) => String(t).replace(/^#/, '').trim().toLowerCase()).filter(Boolean))].slice(0, 20);
 }
 
 /**
@@ -33,7 +44,9 @@ exports.uploadVideo = async (req, res) => {
       title: req.body.title?.trim() || req.file.originalname.replace(ext, '') || 'Video mới',
       description: req.body.description?.trim() || '',
       hashtags: parseHashtags(req.body.hashtags),
-      isPrivate: req.body.isPrivate === 'true' || req.body.isPrivate === true,
+      isPrivate: parseBool(req.body.isPrivate, false),
+      allowComment: parseBool(req.body.allowComment, true),
+      allowDuet: parseBool(req.body.allowDuet, true),
       status: 'uploading',
       sizeBytes: req.file.size,
     });
@@ -45,7 +58,8 @@ exports.uploadVideo = async (req, res) => {
       s3Key,
       req.file.buffer,
       req.file.mimetype,
-      storageService.BUCKETS.VIDEOS
+      storageService.BUCKETS.VIDEOS,
+      storageService.IMMUTABLE_CACHE // key chứa uuid → không bao giờ đổi nội dung
     );
 
     // 3. Thêm công việc vào hàng đợi transcode
@@ -110,8 +124,11 @@ exports.streamProgress = async (req, res) => {
     clearInterval(timer);
   });
 
+  // Frontend đọc `progress` và `step`; giữ thêm `percent`/`message` cho tương thích
   const send = (payload) => {
-    if (!closed) res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    if (closed) return;
+    const out = { ...payload, progress: payload.percent ?? 0, step: payload.message ?? '' };
+    res.write(`data: ${JSON.stringify(out)}\n\n`);
   };
 
   const tick = async () => {

@@ -29,9 +29,9 @@ router.delete('/me', authenticate, userController.deleteAccount);
 router.get('/:username', optionalAuth, userController.getProfile);
 
 // GET  /users/:username/videos  — get paginated videos for a user (was /:id/videos)
-router.get('/:username/videos', userController.getUserVideos);
+router.get('/:username/videos', optionalAuth, userController.getUserVideos);
 
 // POST /users/:username/follow  — follow / unfollow a user (auth required)
 router.post('/:username/follow', authenticate, userController.followUser);
 
-module.exports = router;
+module.exports = router;

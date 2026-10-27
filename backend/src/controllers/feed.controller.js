@@ -13,7 +13,7 @@ const { paginated } = require('../utils/apiResponse');
  */
 exports.getForYouFeed = async (req, res) => {
   const { cursor } = req.query;
-  const limit = Number(req.query.limit) || 20;
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   // req.user may be undefined when optionalAuth is used
   const userId = req.user?._id;
@@ -35,7 +35,7 @@ exports.getForYouFeed = async (req, res) => {
  */
 exports.getFollowingFeed = async (req, res) => {
   const { cursor } = req.query;
-  const limit = Number(req.query.limit) || 20;
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   const result = await videoService.getFollowingFeed(req.user._id, cursor, limit);
 

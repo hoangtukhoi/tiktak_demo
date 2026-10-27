@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const videoController = require('../controllers/video.controller');
-const { authenticate, optionalAuth } = require('../middlewares/auth.middleware');
+const { authenticate, optionalAuth, requireInternalKey } = require('../middlewares/auth.middleware');
+const { viewLimiter } = require('../middlewares/rateLimit.middleware');
 
 // ─── Static / non-parameterised routes (must appear before /:id) ──────────────
 
@@ -27,7 +28,7 @@ router.delete('/:id', authenticate, videoController.deleteVideo);
 // ─── Engagement sub-routes ────────────────────────────────────────────────────
 
 router.post('/:id/like', authenticate, videoController.likeVideo);
-router.post('/:id/view', videoController.recordView);
+router.post('/:id/view', viewLimiter, videoController.recordView);
 
 // Report a video (authenticated; one report per user per video)
 router.post('/:id/report', authenticate, videoController.reportVideo);
@@ -35,6 +36,7 @@ router.post('/:id/report', authenticate, videoController.reportVideo);
 // ─── Internal / pipeline callback ────────────────────────────────────────────
 
 // Called by the transcoding pipeline after HLS encoding completes
-router.patch('/:id/urls', videoController.updateVideoUrls);
+// Yêu cầu header x-internal-key = INTERNAL_KEY
+router.patch('/:id/urls', requireInternalKey, videoController.updateVideoUrls);
 
-module.exports = router;
+module.exports = router;

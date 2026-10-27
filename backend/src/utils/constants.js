@@ -12,7 +12,7 @@ module.exports = {
     { code: 'th', name: 'ภาษาไทย' },
     { code: 'id', name: 'Bahasa Indonesia' },
   ],
-  VIDEO_STATUSES: ['uploading', 'processing', 'ready', 'failed'],
+  VIDEO_STATUSES: ['uploading', 'processing', 'ready', 'failed', 'deleted'],
   MAX_VIDEO_SIZE_MB: 500,
   MAX_VIDEO_DURATION_S: 180,
-};
+};

@@ -13,9 +13,85 @@ const notificationService = require('../services/notification.service');
 const { emitToUser } = require('../sockets/notification.socket');
 const { setProgress } = require('./queue');
 
+// fluent-ffmpeg tự đọc biến môi trường FFMPEG_PATH / FFPROBE_PATH nếu ffmpeg
+// không nằm trong PATH (Windows: VD C:\ffmpeg\bin\ffmpeg.exe).
+
+// Cạnh ngắn tối đa của bản nén (720 = 720p). Đổi qua .env TRANSCODE_MAX_SIDE.
+const MAX_SIDE = Number(process.env.TRANSCODE_MAX_SIDE) || 720;
+
+let ffmpegAvailable = null;
 async function checkFfmpeg() {
-  return new Promise((resolve) => {
+  if (ffmpegAvailable !== null) return ffmpegAvailable;
+  ffmpegAvailable = await new Promise((resolve) => {
     ffmpeg.getAvailableFormats((err) => resolve(!err));
+  });
+  if (!ffmpegAvailable) {
+    console.warn('[transcode] Không tìm thấy ffmpeg — video sẽ phát bằng file gốc (chậm). Cài ffmpeg hoặc đặt FFMPEG_PATH.');
+  }
+  return ffmpegAvailable;
+}
+
+function probe(file) {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(file, (err, data) => {
+      if (err) return resolve(null);
+      const vStream = data.streams?.find((s) => s.codec_type === 'video');
+      // Video quay dọc trên điện thoại thường có rotate 90/270
+      const rotation = Math.abs(Number(vStream?.tags?.rotate || vStream?.side_data_list?.[0]?.rotation || 0));
+      const swap = rotation === 90 || rotation === 270;
+      resolve({
+        durationMs: Math.round((Number(data.format?.duration) || 0) * 1000),
+        width: (swap ? vStream?.height : vStream?.width) || 0,
+        height: (swap ? vStream?.width : vStream?.height) || 0,
+        hasVideo: Boolean(vStream),
+      });
+    });
+  });
+}
+
+/**
+ * Nén về H.264/AAC, cạnh ngắn ≤ MAX_SIDE, `+faststart` để trình duyệt
+ * phát được ngay khi mới tải vài trăm KB đầu (không phải chờ tải hết file).
+ */
+function transcodeMp4(input, output, onPercent) {
+  // Giữ tỉ lệ, cạnh ngắn tối đa MAX_SIDE, kích thước chia hết cho 2 (yêu cầu của H.264)
+  const scale =
+    `scale='if(gte(iw,ih),-2,trunc(min(${MAX_SIDE},iw)/2)*2)':` +
+    `'if(gte(iw,ih),trunc(min(${MAX_SIDE},ih)/2)*2,-2)'`;
+  return new Promise((resolve, reject) => {
+    ffmpeg(input)
+      .outputOptions([
+        '-map', '0:v:0',
+        '-map', '0:a:0?',
+        '-vf', scale,
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '24',
+        '-profile:v', 'main',
+        '-pix_fmt', 'yuv420p',
+        '-maxrate', '2500k',
+        '-bufsize', '5000k',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-ac', '2',
+        '-movflags', '+faststart',
+      ])
+      .on('progress', (p) => p.percent && onPercent?.(Math.min(100, p.percent)))
+      .on('end', resolve)
+      .on('error', reject)
+      .save(output);
+  });
+}
+
+function extractThumbnail(input, folder) {
+  return new Promise((resolve) => {
+    ffmpeg(input)
+      .screenshots({ timestamps: ['10%'], filename: 'thumb.jpg', folder, size: '540x?' })
+      .on('end', () => resolve(path.join(folder, 'thumb.jpg')))
+      .on('error', (err) => {
+        console.warn('[ffmpeg] Thumbnail extraction failed:', err.message);
+        resolve(null); // non-fatal
+      });
   });
 }
 
@@ -23,99 +99,94 @@ async function processTranscodeJob(job) {
   const { videoId, sourceKey, sourceBucket } = job.data;
   const video = await Video.findById(videoId);
   if (!video) throw new Error(`Không tìm thấy video ${videoId}`);
+  if (video.status === 'deleted') return { videoId, status: 'deleted' };
 
   const report = async (percent, message) => {
-    await job.updateProgress(percent);
-    await setProgress(job.id, { status: 'processing', percent, message, videoId });
-    emitToUser(video.userId, 'transcode:progress', { videoId, percent, message });
+    const p = Math.round(percent);
+    await job.updateProgress(p);
+    await setProgress(job.id, { status: 'processing', percent: p, message, videoId });
+    emitToUser(video.userId, 'transcode:progress', { videoId, percent: p, message });
   };
 
   const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'tiktak-transcode-'));
 
   try {
-    await Video.findByIdAndUpdate(videoId, { status: 'processing' });
-    await report(10, 'Đang chuẩn bị xử lý video');
+    if (video.status !== 'ready') await Video.findByIdAndUpdate(videoId, { status: 'processing' });
+    await report(5, 'Đang chuẩn bị xử lý video');
 
-    const hasFfmpeg = await checkFfmpeg();
+    const updates = {};
+    let thumbnailUrl = video.thumbnailUrl || null;
 
-    let thumbnailUrl = `https://picsum.photos/seed/${videoId}/720/1280`;
-    let durationMs = 15000;
-    let width = 720;
-    let height = 1280;
+    if ((await checkFfmpeg()) && sourceKey) {
+      await report(10, 'Đang tải file video để xử lý');
+      const localSource = path.join(workDir, 'source' + (path.extname(sourceKey) || '.mp4'));
+      await storageService.downloadToFile(sourceBucket || storageService.BUCKETS.VIDEOS, sourceKey, localSource);
 
-    if (hasFfmpeg && sourceKey) {
-      try {
-        await report(25, 'Đang tải file video để xử lý');
-        const localSource = path.join(workDir, 'source' + (path.extname(sourceKey) || '.mp4'));
-        await storageService.downloadToFile(
-          sourceBucket || storageService.BUCKETS.VIDEOS,
-          sourceKey,
-          localSource
+      await report(20, 'Đang đọc thông tin video');
+      const meta = await probe(localSource);
+      if (meta && !meta.hasVideo) throw new Error('File tải lên không có luồng video');
+
+      await report(25, 'Đang tạo ảnh bìa');
+      const thumbLocal = await extractThumbnail(localSource, workDir);
+      if (thumbLocal && fs.existsSync(thumbLocal)) {
+        thumbnailUrl = await storageService.uploadFile(
+          `${videoId}/thumb-${Date.now()}.jpg`,
+          thumbLocal,
+          storageService.BUCKETS.THUMBNAILS,
+          storageService.IMMUTABLE_CACHE
         );
+      }
 
-        await report(40, 'Đang trích xuất thông tin video');
-        const metadata = await new Promise((resolve, reject) => {
-          ffmpeg.ffprobe(localSource, (err, data) => {
-            if (err) return resolve(null);
-            const vStream = data.streams?.find((s) => s.codec_type === 'video');
-            resolve({
-              durationMs: Math.round((data.format?.duration || 15) * 1000),
-              width: vStream?.width || 720,
-              height: vStream?.height || 1280,
-            });
-          });
+      await report(30, `Đang nén video ${MAX_SIDE}p`);
+      const outLocal = path.join(workDir, 'out.mp4');
+      try {
+        let lastPct = -1;
+        await transcodeMp4(localSource, outLocal, (pct) => {
+          // Chỉ báo khi tăng ≥ 3% để không spam Redis/socket
+          if (pct - lastPct < 3) return;
+          lastPct = pct;
+          // 30% → 85% dành cho bước nén; không await để không chặn ffmpeg
+          report(30 + pct * 0.55, `Đang nén video ${MAX_SIDE}p (${Math.round(pct)}%)`).catch(() => {});
         });
-
-        if (metadata) {
-          durationMs = metadata.durationMs;
-          width = metadata.width;
-          height = metadata.height;
-        }
-
-        await report(60, 'Đang tạo hình thu nhỏ (thumbnail)');
-        const thumbLocal = path.join(workDir, 'thumb.jpg');
-        await new Promise((resolve, reject) => {
-          ffmpeg(localSource)
-            .screenshots({
-              timestamps: [1],
-              filename: 'thumb.jpg',
-              folder: workDir,
-              size: '720x?',
-            })
-            .on('end', resolve)
-            .on('error', (err) => {
-              console.warn('[ffmpeg] Thumbnail extraction failed:', err.message);
-              resolve(); // non-fatal
-            });
+        await report(88, 'Đang lưu bản đã nén');
+        updates.hlsUrl = await storageService.uploadFile(
+          `${videoId}/${MAX_SIDE}p-${Date.now()}.mp4`,
+          outLocal,
+          storageService.BUCKETS.VIDEOS,
+          storageService.IMMUTABLE_CACHE
+        );
+        const outMeta = await probe(outLocal);
+        const outStat = await fsp.stat(outLocal);
+        Object.assign(updates, {
+          durationMs: outMeta?.durationMs || meta?.durationMs || 0,
+          width: outMeta?.width || meta?.width || 0,
+          height: outMeta?.height || meta?.height || 0,
+          sizeBytes: outStat.size,
         });
-
-        if (fs.existsSync(thumbLocal)) {
-          thumbnailUrl = await storageService.uploadFile(
-            `${videoId}/thumbnail.jpg`,
-            thumbLocal,
-            storageService.BUCKETS.THUMBNAILS
-          );
-        }
-      } catch (procErr) {
-        console.warn('[transcode] FFmpeg processing warning, using fallback:', procErr.message);
+      } catch (encErr) {
+        // Nén lỗi → vẫn cho video lên sóng bằng file gốc
+        console.warn('[transcode] Encode failed, fallback to original:', encErr.message);
+        if (meta) Object.assign(updates, { durationMs: meta.durationMs, width: meta.width, height: meta.height });
       }
     }
 
-    await report(85, 'Đang lưu trữ và cập nhật trạng thái');
+    if (!updates.hlsUrl) updates.hlsUrl = video.hlsUrl || video.originalUrl;
+    if (!thumbnailUrl) thumbnailUrl = `https://picsum.photos/seed/${videoId}/540/960`;
+    updates.thumbnailUrl = thumbnailUrl;
 
-    // Cập nhật bản ghi video sang ready
-    await Video.findByIdAndUpdate(videoId, {
-      status: 'ready',
-      moderationStatus: 'approved',
-      hlsUrl: video.hlsUrl || video.originalUrl,
-      thumbnailUrl,
-      durationMs,
-      width,
-      height,
-    });
+    await report(95, 'Đang cập nhật trạng thái');
 
-    // Tăng số lượng video của user
-    await User.findByIdAndUpdate(video.userId, { $inc: { videoCount: 1 } });
+    // Video lần đầu sẵn sàng: đặt ready + duyệt tự động + tăng videoCount (một lần).
+    // Chạy lại (retry hoặc script retranscode) chỉ cập nhật URL/metadata,
+    // không đụng tới moderationStatus (tránh "gỡ cờ" video đang bị flag/removed).
+    const firstTime = video.status !== 'ready';
+    const prev = await Video.findOneAndUpdate(
+      { _id: videoId, status: { $ne: 'deleted' } },
+      firstTime ? { ...updates, status: 'ready', moderationStatus: 'approved' } : updates
+    );
+    if (prev && prev.status !== 'ready') {
+      await User.findByIdAndUpdate(video.userId, { $inc: { videoCount: 1 } });
+    }
 
     await report(100, 'Xử lý video hoàn tất');
     await setProgress(job.id, {
@@ -123,21 +194,28 @@ async function processTranscodeJob(job) {
       percent: 100,
       message: 'Hoàn tất',
       videoId,
-      url: video.originalUrl,
+      url: updates.hlsUrl,
       thumbnailUrl,
     });
 
-    // Gửi thông báo đến user
-    await notificationService.createNotification(video.userId, 'video_ready', {
-      videoId: video._id,
-      videoThumbnail: thumbnailUrl,
-      message: `Video "${video.title}" của bạn đã xử lý xong và sẵn sàng hiển thị!`,
-    }).catch(() => {});
+    if (prev && prev.status !== 'ready') {
+      await notificationService
+        .createNotification(video.userId, 'video_ready', {
+          videoId: video._id,
+          videoThumbnail: thumbnailUrl,
+          message: `Video "${video.title}" của bạn đã xử lý xong và sẵn sàng hiển thị!`,
+        })
+        .catch(() => {});
+    }
 
-    return { videoId, status: 'ready' };
+    return { videoId, status: 'ready', url: updates.hlsUrl };
   } catch (err) {
     console.error(`[transcode] Job ${job.id} failed:`, err.message);
-    await Video.findByIdAndUpdate(videoId, { status: 'failed', flagReason: err.message });
+    // Chỉ đánh dấu failed nếu video chưa từng ready (không làm hỏng video đang phát)
+    await Video.updateOne(
+      { _id: videoId, status: { $nin: ['ready', 'deleted'] } },
+      { status: 'failed', flagReason: err.message }
+    );
     await setProgress(job.id, { status: 'failed', percent: 100, message: err.message, videoId });
     emitToUser(video.userId, 'transcode:progress', {
       videoId,
@@ -157,7 +235,10 @@ function startTranscodeWorker() {
   if (workerInstance) return workerInstance;
   workerInstance = new Worker('video-transcode', processTranscodeJob, {
     connection: redis,
-    concurrency: 2,
+    // Nén video tốn CPU → mặc định 1 job một lúc
+    concurrency: Number(process.env.TRANSCODE_CONCURRENCY) || 1,
+    // Video dài có thể nén vài phút → tăng thời gian khoá job
+    lockDuration: 10 * 60 * 1000,
   });
 
   workerInstance.on('completed', (job) => {
@@ -174,4 +255,6 @@ function startTranscodeWorker() {
 module.exports = {
   startTranscodeWorker,
   processTranscodeJob,
+  transcodeMp4,
+  probe,
 };

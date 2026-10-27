@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const videoService = require('../services/video.service');
 const Like = require('../models/Like');
 const Video = require('../models/Video');
@@ -20,7 +21,7 @@ exports.createVideo = async (req, res) => {
  * Fetch a single video. Authenticated users get an isLiked flag.
  */
 exports.getVideo = async (req, res) => {
-  const video = await videoService.getVideoById(req.params.id, req.user?._id);
+  const video = await videoService.getVideoById(req.params.id, req.user?._id, req.user?.role);
   success(res, video);
 };
 
@@ -54,6 +55,10 @@ exports.likeVideo = async (req, res) => {
   const videoId = req.params.id;
   const userId = req.user._id;
 
+  // Kiểm tra video tồn tại và được phép xem TRƯỚC khi tạo Like
+  // (tránh Like mồ côi khi videoId sai)
+  await videoService.getVideoById(videoId, userId, req.user.role);
+
   // Check if the user has already liked this video
   const existingLike = await Like.findOne({
     userId,
@@ -64,12 +69,18 @@ exports.likeVideo = async (req, res) => {
   if (existingLike) {
     // ── Unlike ────────────────────────────────────────────────────────────────
     await existingLike.deleteOne();
-    await Video.findByIdAndUpdate(videoId, { $inc: { likeCount: -1 } });
+    await Video.updateOne({ _id: videoId, likeCount: { $gt: 0 } }, { $inc: { likeCount: -1 } });
     return success(res, { liked: false }, 200, 'Like removed');
   }
 
   // ── Like ──────────────────────────────────────────────────────────────────
-  await Like.create({ userId, targetId: videoId, targetType: 'video' });
+  try {
+    await Like.create({ userId, targetId: videoId, targetType: 'video' });
+  } catch (err) {
+    // Bấm like 2 lần liên tiếp (race condition) → coi như đã like
+    if (err.code === 11000) return success(res, { liked: true }, 200, 'Already liked');
+    throw err;
+  }
   const video = await Video.findByIdAndUpdate(
     videoId,
     { $inc: { likeCount: 1 } },
@@ -99,6 +110,7 @@ exports.likeVideo = async (req, res) => {
  * Record a view event. Body may contain { watchTimeMs }.
  */
 exports.recordView = async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
   const watchTimeMs = Number(req.body?.watchTimeMs) || 0;
   await videoService.recordView(req.params.id, watchTimeMs);
   success(res, null, 200, 'View recorded');
@@ -124,7 +136,7 @@ exports.updateVideoUrls = async (req, res) => {
  */
 exports.searchVideos = async (req, res) => {
   const { q, cursor, limit } = req.query;
-  const result = await videoService.searchVideos(q, cursor, Number(limit) || 12);
+  const result = await videoService.searchVideos(q, cursor, Math.min(Number(limit) || 12, 50));
   paginated(res, result.videos, { nextCursor: result.nextCursor });
 };
 
@@ -133,7 +145,7 @@ exports.searchVideos = async (req, res) => {
  * Return the most-used hashtags in the last 7 days.
  */
 exports.getTrendingHashtags = async (req, res) => {
-  const limit = Number(req.query.limit) || 10;
+  const limit = Math.min(Number(req.query.limit) || 10, 50);
   const hashtags = await videoService.getTrendingHashtags(limit);
   success(res, hashtags);
 };
@@ -152,4 +164,4 @@ exports.reportVideo = async (req, res) => {
 
   const report = await videoService.reportVideo(req.params.id, req.user._id, reason);
   success(res, report, 201, 'Report submitted');
-};
+};

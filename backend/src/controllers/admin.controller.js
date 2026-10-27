@@ -4,6 +4,7 @@ const Video = require('../models/Video');
 const Report = require('../models/Report');
 const AuditLog = require('../models/AuditLog');
 const { success, error, paginated } = require('../utils/apiResponse');
+const escapeRegex = require('../utils/escapeRegex');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +80,8 @@ exports.getStats = async (req, res) => {
     const totalViews = viewsAgg.length > 0 ? viewsAgg[0].total : 0;
 
     return success(res, {
+      users: totalUsers, // alias cho frontend (stats.users)
+      videos: totalVideos, // alias cho frontend (stats.videos)
       totalUsers,
       newUsersToday,
       totalVideos,
@@ -111,7 +114,7 @@ exports.getUsers = async (req, res) => {
     const filter = {};
 
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), 'i');
+      const regex = new RegExp(escapeRegex(search.trim().slice(0, 100)), 'i');
       filter.$or = [{ username: regex }, { email: regex }];
     }
 
@@ -157,9 +160,16 @@ exports.banUser = async (req, res) => {
       return error(res, 'User is already banned', 409);
     }
 
+    // Không cho admin tự khoá mình hoặc khoá admin khác
+    if (String(user._id) === String(req.user._id) || user.role === 'admin') {
+      return error(res, 'Cannot ban this user', 403);
+    }
+
     user.bannedAt = new Date();
     user.banReason = reason || null;
     await user.save();
+    // Thu hồi toàn bộ refresh token để buộc đăng xuất
+    await User.updateOne({ _id: user._id }, { $set: { refreshTokens: [] } });
 
     await createAuditLog({
       adminId: req.user._id,
@@ -268,7 +278,7 @@ exports.getVideos = async (req, res) => {
 
     const filter = {};
 
-    if (status && ['uploading', 'processing', 'ready', 'failed'].includes(status)) {
+    if (status && ['uploading', 'processing', 'ready', 'failed', 'deleted'].includes(status)) {
       filter.status = status;
     }
 
@@ -479,4 +489,4 @@ exports.getAuditLogs = async (req, res) => {
     console.error('[Admin] getAuditLogs error:', err);
     return error(res, 'Failed to fetch audit logs', 500);
   }
-};
+};
