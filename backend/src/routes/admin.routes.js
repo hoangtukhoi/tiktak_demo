@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const analyticsController = require('../controllers/analytics.controller');
 const { authenticate, requireRole } = require('../middlewares/auth.middleware');
 
 // All admin routes require a valid JWT and the 'admin' role
@@ -8,6 +9,8 @@ router.use(authenticate, requireRole('admin'));
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 router.get('/stats', adminController.getStats);
+router.get('/analytics', analyticsController.getAdminAnalytics);
+router.get('/analytics/videos/:id', analyticsController.getAdminVideoAnalytics);
 
 // ── User management ────────────────────────────────────────────────────────
 router.get('/users', adminController.getUsers);
@@ -28,4 +31,4 @@ router.post('/videos/:id/approve', adminController.approveVideo);
 // ── Audit trail ────────────────────────────────────────────────────────────
 router.get('/audit-logs', adminController.getAuditLogs);
 
-module.exports = router;
+module.exports = router;

@@ -9,7 +9,9 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
+const analyticsController = require('../controllers/analytics.controller');
 const { authenticate, optionalAuth } = require('../middlewares/auth.middleware');
+const { imageUpload } = require('../middlewares/upload.middleware');
 
 // ─── Static / authenticated-user routes ──────────────────────────────────────
 
@@ -18,6 +20,15 @@ router.get('/search', userController.searchUsers);
 
 // PATCH /users/me         — update own profile (auth required)
 router.patch('/me', authenticate, userController.updateProfile);
+
+// GET /users/me/analytics(/videos/:id) — số liệu phân tích của chính mình
+router.get('/me/analytics', authenticate, analyticsController.getMyAnalyticsTab); // = overview
+router.get('/me/analytics/videos/:id', authenticate, analyticsController.getMyVideoAnalytics);
+router.get('/me/analytics/compare', authenticate, analyticsController.compareMyVideos);
+router.get('/me/analytics/:tab(overview|content|viewers|followers)', authenticate, analyticsController.getMyAnalyticsTab);
+
+// POST /users/me/avatar   — upload ảnh đại diện (multipart, trường "avatar")
+router.post('/me/avatar', authenticate, imageUpload.single('avatar'), userController.uploadAvatar);
 
 // DELETE /users/me        — delete own account (auth required)
 router.delete('/me', authenticate, userController.deleteAccount);

@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Link2, Pencil, Plus } from 'lucide-react';
+import { BarChart3, Camera, Crop, Globe, ImagePlus, Link2, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import Avatar from '../../components/common/Avatar';
 import Button from '../../components/common/Button';
 import Modal from '../../components/common/Modal';
+import AvatarCropper from '../../components/profile/AvatarCropper';
 import { VideoTile } from '../../components/video/VideoCard';
 import useAuth from '../../hooks/useAuth';
-import { getProfile, updateProfile } from '../../api/auth.api';
+import { getProfile, updateProfile, uploadAvatar } from '../../api/auth.api';
 import { deleteVideo, getUserVideos } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount } from '../../utils/format';
@@ -22,43 +23,256 @@ function Stat({ value, label }) {
   );
 }
 
+// ── Liên kết ngoài ───────────────────────────────────────────────────────────
+const LINK_FIELDS = [
+  { key: 'website', icon: Globe, label: 'Website', placeholder: 'tenban.com' },
+  { key: 'instagram', icon: Camera, label: 'Instagram', placeholder: '@ten_tai_khoan hoặc link instagram.com' },
+  { key: 'youtube', icon: Play, label: 'YouTube', placeholder: '@kenh hoặc link youtube.com' },
+];
+
+/** Chữ ngắn gọn để hiển thị link trên hồ sơ: tenban.com, @alice, @AliceDev */
+const linkText = (key, url) => {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/+$/, '');
+    if (key === 'instagram' && path) return '@' + path.split('/').filter(Boolean)[0];
+    if (key === 'youtube' && path.startsWith('/@')) return path.slice(1).split('/')[0];
+    return (u.hostname.replace(/^www\./, '') + (key === 'website' && path ? path : '')).slice(0, 40);
+  } catch {
+    return url;
+  }
+};
+
+/** Giá trị đưa vào ô nhập khi sửa: @handle nếu biểu diễn được, còn lại là link rút gọn (không mất thông tin) */
+const linkInputValue = (key, url) => {
+  if (!url) return '';
+  const bare = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  try {
+    const segs = new URL(url).pathname.split('/').filter(Boolean);
+    if (key === 'instagram' && segs.length === 1) return '@' + segs[0];
+    if (key === 'youtube' && segs.length === 1 && segs[0].startsWith('@')) return segs[0];
+  } catch { /* giữ nguyên */ }
+  return bare;
+};
+
+function ProfileLinks({ links }) {
+  const items = LINK_FIELDS.filter((f) => links?.[f.key]);
+  if (!items.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+      {items.map(({ key, icon: Icon, label }) => (
+        <a
+          key={key}
+          href={links[key]}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          title={label}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-paper hover:text-lime"
+        >
+          <Icon size={15} className="text-paper-mute" /> {linkText(key, links[key])}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// ── Form sửa hồ sơ ───────────────────────────────────────────────────────────
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
+const MAX_AVATAR_MB = 20; // ảnh gốc; sau khi cắt chỉ còn ~50–150 KB
+const initForm = (u) => ({
+  displayName: u?.displayName || '',
+  username: u?.username || '',
+  bio: u?.bio || '',
+  links: Object.fromEntries(LINK_FIELDS.map(({ key }) => [key, linkInputValue(key, u?.links?.[key])])),
+});
+
+function Field({ label, counter, hint, error, children }) {
+  return (
+    <label className="block">
+      <span className="label flex justify-between gap-3">{label}{counter && <span>{counter}</span>}</span>
+      <div className="mt-2">{children}</div>
+      {error ? <p className="mt-1.5 text-xs font-semibold text-coral">{error}</p> : hint && <p className="mt-1.5 text-xs text-paper-mute">{hint}</p>}
+    </label>
+  );
+}
+
 function EditProfile({ open, onClose, user, onSaved }) {
-  const [bio, setBio] = useState(user?.bio || '');
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
+  const fileRef = useRef(null);
+  const [form, setForm] = useState(() => initForm(user));
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null); // ảnh đã cắt
+  const [rawSrc, setRawSrc] = useState(null); // ảnh gốc vừa chọn (để chỉnh lại)
+  const [cropping, setCropping] = useState(false);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setBio(user?.bio || ''); setAvatarUrl(user?.avatarUrl || ''); }, [user, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(initForm(user)); setFile(null); setPreview(null); setRawSrc(null); setCropping(false); setRemoveAvatar(false); setErrors({});
+  }, [user, open]);
+  useEffect(() => () => preview && URL.revokeObjectURL(preview), [preview]);
+  useEffect(() => () => rawSrc && URL.revokeObjectURL(rawSrc), [rawSrc]);
+
+  const set = (key) => (e) => { setForm((f) => ({ ...f, [key]: e.target.value })); setErrors((er) => ({ ...er, [key]: null })); };
+  const setLink = (key) => (e) => { setForm((f) => ({ ...f, links: { ...f.links, [key]: e.target.value } })); setErrors((er) => ({ ...er, links: null })); };
+
+  const pickFile = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // cho phép chọn lại cùng một file
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return toast.error('Hãy chọn file ảnh (JPG, PNG, WebP)');
+    if (f.size > MAX_AVATAR_MB * 1048576) return toast.error(`Ảnh tối đa ${MAX_AVATAR_MB} MB`);
+    // Mở màn căn chỉnh; chỉ khi bấm "Áp dụng" mới thay ảnh trong form
+    setRawSrc(URL.createObjectURL(f));
+    setCropping(true);
+  };
+
+  const applyCrop = (croppedFile, url) => {
+    setFile(croppedFile);
+    setPreview(url);
+    setRemoveAvatar(false);
+    setCropping(false);
+  };
+
+  const shownAvatar = preview || (removeAvatar ? null : user?.avatarUrl);
+  const usernameChanged = form.username.trim() !== user?.username;
 
   const save = async (e) => {
     e.preventDefault();
+    const username = form.username.trim();
+    if (!USERNAME_RE.test(username)) {
+      setErrors({ username: 'Từ 3–30 ký tự, chỉ gồm chữ không dấu, số và dấu gạch dưới (_)' });
+      return;
+    }
+
     setSaving(true);
+    let latest = user;
     try {
-      onSaved(await updateProfile({ bio, avatarUrl: avatarUrl || null }));
+      if (file) {
+        latest = await uploadAvatar(file);
+        onSaved(latest); // ảnh đã lưu dù bước sau có lỗi
+      }
+      const payload = { displayName: form.displayName.trim(), bio: form.bio, links: form.links };
+      if (usernameChanged) payload.username = username;
+      if (removeAvatar && !file) payload.avatarUrl = null;
+      latest = await updateProfile(payload);
+      onSaved(latest);
       toast('Đã lưu hồ sơ', { icon: '✓' });
       onClose();
-    } catch (err) { toast.error(errMsg(err)); }
+    } catch (err) {
+      const msg = errMsg(err);
+      if (/username/i.test(msg)) setErrors({ username: msg });
+      else if (/website|instagram|youtube/i.test(msg)) setErrors({ links: msg });
+      toast.error(msg);
+    }
     setSaving(false);
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Sửa hồ sơ" variant="center">
-      <form onSubmit={save} className="space-y-4">
-        <div className="flex justify-center py-2"><Avatar user={{ ...user, avatarUrl }} size={88} /></div>
-        <label className="block">
-          <span className="label">Ảnh đại diện (URL)</span>
-          <input className="input mt-2" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://…" />
-        </label>
-        <label className="block">
-          <span className="label flex justify-between">Tiểu sử <span>{bio.length}/150</span></span>
-          <textarea className="input mt-2 min-h-[96px] resize-none" maxLength={150} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Giới thiệu đôi chút về bạn" />
-        </label>
+    <Modal open={open} onClose={cropping ? () => setCropping(false) : onClose} title={cropping ? 'Căn chỉnh ảnh' : 'Sửa hồ sơ'} variant="center">
+      {cropping && rawSrc ? (
+        <AvatarCropper src={rawSrc} onCancel={() => setCropping(false)} onApply={applyCrop} />
+      ) : (
+      <form onSubmit={save} className="space-y-5" noValidate>
+        {/* Ảnh đại diện: bấm vào ảnh để chọn file từ máy */}
+        <div className="flex flex-col items-center gap-3 py-1">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="group relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+            aria-label="Đổi ảnh đại diện"
+          >
+            <Avatar user={{ ...user, avatarUrl: shownAvatar }} size={96} />
+            <span className="absolute inset-0 grid place-items-center rounded-full bg-black/50 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+              <ImagePlus size={26} />
+            </span>
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost !px-3 !py-1.5 text-sm">
+              <ImagePlus size={15} /> {shownAvatar ? 'Đổi ảnh' : 'Tải ảnh lên'}
+            </button>
+            {rawSrc && preview && (
+              <button type="button" onClick={() => setCropping(true)} className="btn-ghost !px-3 !py-1.5 text-sm">
+                <Crop size={15} /> Chỉnh lại
+              </button>
+            )}
+            {shownAvatar && (
+              <button
+                type="button"
+                onClick={() => { setFile(null); setPreview(null); setRawSrc(null); setRemoveAvatar(true); }}
+                className="btn-ghost !px-3 !py-1.5 text-sm"
+              >
+                <Trash2 size={15} /> Gỡ ảnh
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-paper-mute">
+            {preview ? 'Ảnh mới sẽ được lưu khi bấm "Lưu".' : `JPG, PNG hoặc WebP, tối đa ${MAX_AVATAR_MB} MB — bạn sẽ được căn chỉnh trước khi lưu.`}
+          </p>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={pickFile} />
+        </div>
+
+        <Field label="Tên hiển thị" counter={`${form.displayName.length}/30`} hint="Tên lớn nhất trên hồ sơ của bạn, đổi bất cứ lúc nào.">
+          <input className="input" maxLength={30} value={form.displayName} onChange={set('displayName')} placeholder={user?.username} />
+        </Field>
+
+        <Field
+          label="Username"
+          counter={`${form.username.length}/30`}
+          error={errors.username}
+          hint={usernameChanged
+            ? `Hồ sơ mới: /profile/${form.username || '…'}. Link cũ sẽ không còn dùng được; mỗi 30 ngày chỉ đổi được 1 lần.`
+            : 'Dùng trong đường dẫn hồ sơ và khi người khác nhắc đến bạn.'}
+        >
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono text-paper-mute">@</span>
+            <input
+              className="input !pl-9 font-mono"
+              maxLength={30}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={form.username}
+              onChange={(e) => set('username')({ target: { value: e.target.value.replace(/\s/g, '') } })}
+            />
+          </div>
+        </Field>
+
+        <Field label="Tiểu sử" counter={`${form.bio.length}/150`}>
+          <textarea className="input min-h-[96px] resize-none" maxLength={150} value={form.bio} onChange={set('bio')} placeholder="Giới thiệu đôi chút về bạn" />
+        </Field>
+
+        <div className="space-y-2">
+          <span className="label">Liên kết</span>
+          {LINK_FIELDS.map(({ key, icon: Icon, label, placeholder }) => (
+            <div key={key} className="relative">
+              <Icon size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-paper-mute" />
+              <input
+                className="input !pl-10"
+                aria-label={label}
+                maxLength={200}
+                autoCapitalize="none"
+                spellCheck={false}
+                value={form.links[key]}
+                onChange={setLink(key)}
+                placeholder={placeholder}
+              />
+            </div>
+          ))}
+          {errors.links && <p className="text-xs font-semibold text-coral">{errors.links}</p>}
+        </div>
+
         <Button type="submit" loading={saving} className="w-full">Lưu</Button>
       </form>
+      )}
     </Modal>
   );
 }
 
 export default function Profile() {
   const { username } = useParams();
+  const navigate = useNavigate();
   const { user: me, setUser } = useAuth();
   const [user, setProfile] = useState(null);
   const [videos, setVideos] = useState(null);
@@ -122,8 +336,10 @@ export default function Profile() {
         <div className="min-w-0 flex-1 pb-1">
           {user ? (
             <>
-              <h1 className="break-all text-3xl font-extrabold sm:text-5xl">@{user.username}</h1>
-              <p className="mt-1 text-paper-dim">{user.bio || (isMe ? 'Thêm tiểu sử để mọi người biết bạn là ai.' : 'Chưa có tiểu sử.')}</p>
+              <h1 className="break-words text-3xl font-extrabold sm:text-5xl">{user.displayName || user.username}</h1>
+              <p className="mt-1 break-all font-mono text-sm text-paper-mute">@{user.username}</p>
+              <p className="mt-2 text-paper-dim">{user.bio || (isMe ? 'Thêm tiểu sử để mọi người biết bạn là ai.' : 'Chưa có tiểu sử.')}</p>
+              <ProfileLinks links={user.links} />
             </>
           ) : (
             <><span className="skeleton block h-10 w-56 rounded-xl" /><span className="skeleton mt-3 block h-4 w-72 rounded" /></>
@@ -131,6 +347,7 @@ export default function Profile() {
         </div>
         <div className="flex gap-2 pb-1">
           {isMe && <button onClick={() => setEditing(true)} className="btn-ghost"><Pencil size={16} /> Sửa hồ sơ</button>}
+          {isMe && <Link to="/analytics" className="btn-ghost"><BarChart3 size={16} /> Phân tích</Link>}
           <button onClick={copyLink} className="btn-ghost !px-3" aria-label="Sao chép liên kết"><Link2 size={18} /></button>
         </div>
       </div>
@@ -150,7 +367,7 @@ export default function Profile() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-2xl" />)}</div>
       ) : videos.length ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe ? remove : undefined} />)}
+          {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe ? remove : undefined} from="profile" />)}
         </div>
       ) : (
         <div className="card grid place-items-center px-6 py-16 text-center">
@@ -160,7 +377,19 @@ export default function Profile() {
         </div>
       )}
 
-      {isMe && <EditProfile open={editing} onClose={() => setEditing(false)} user={user} onSaved={(u) => { setProfile(u); setUser(u); }} />}
+      {isMe && (
+        <EditProfile
+          open={editing}
+          onClose={() => setEditing(false)}
+          user={user}
+          onSaved={(u) => {
+            setProfile((p) => ({ ...p, ...u }));
+            setUser({ ...me, ...u });
+            // Đổi username → chuyển sang URL hồ sơ mới
+            if (u.username && u.username !== username) navigate(`/profile/${u.username}`, { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 }

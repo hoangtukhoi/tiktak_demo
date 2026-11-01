@@ -52,3 +52,5 @@ minio_data/
 *.pem
 *.key
 *.p12
+
+.graphify-out/

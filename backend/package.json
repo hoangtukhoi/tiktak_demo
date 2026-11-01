@@ -9,7 +9,8 @@
     "worker": "node src/worker.js",
     "seed": "node src/scripts/seed.js",
     "create:admin": "node src/scripts/createAdmin.js",
-    "retranscode": "node src/scripts/retranscode.js"
+    "retranscode": "node src/scripts/retranscode.js",
+    "seed:analytics": "node src/scripts/seedAnalytics.js"
   },
   "dependencies": {
     "express": "^4.19.2",

@@ -12,4 +12,10 @@ export const refresh = (refreshToken) => api.post('/auth/refresh', { refreshToke
 // /users
 export const getProfile = (username) => api.get(`/users/${encodeURIComponent(username)}`).then(d);
 export const updateProfile = (data) => api.patch('/users/me', data).then(d);
+/** Upload ảnh đại diện (multipart, trường "avatar") -> User đã cập nhật avatarUrl */
+export const uploadAvatar = (file) => {
+  const fd = new FormData();
+  fd.append('avatar', file);
+  return api.post('/users/me/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(d);
+};
 export const searchUsers = (q) => api.get('/users/search', { params: { q } }).then(d);

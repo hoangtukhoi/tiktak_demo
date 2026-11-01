@@ -11,8 +11,18 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, minlength: 6, select: false },
     googleId: { type: String, sparse: true },
+    // Tên hiển thị: đổi tự do, hiển thị to nhất trên hồ sơ (username là định danh duy nhất)
+    displayName: { type: String, trim: true, maxlength: 30, default: '' },
     avatarUrl: { type: String, default: null },
     bio: { type: String, maxlength: 150, default: '' },
+    // Liên kết ngoài hiển thị trên hồ sơ (URL đầy đủ, đã chuẩn hoá)
+    links: {
+      website: { type: String, maxlength: 200, default: '' },
+      instagram: { type: String, maxlength: 200, default: '' },
+      youtube: { type: String, maxlength: 200, default: '' },
+    },
+    // Lần đổi username gần nhất (giới hạn tần suất đổi)
+    usernameChangedAt: { type: Date, default: null },
     isVerified: { type: Boolean, default: false },
     role: { type: String, enum: ['user', 'admin', 'moderator'], default: 'user' },
     followerCount: { type: Number, default: 0 },

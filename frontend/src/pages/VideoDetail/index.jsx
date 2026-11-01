@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BadgeCheck } from 'lucide-react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, BadgeCheck, BarChart3 } from 'lucide-react';
+import useAuth from '../../hooks/useAuth';
 import VideoCard from '../../components/video/VideoCard';
 import CommentList from '../../components/comment/CommentList';
 import Avatar from '../../components/common/Avatar';
@@ -13,8 +14,10 @@ const useWide = () => useSyncExternalStore((cb) => { mq.addEventListener('change
 
 export default function VideoDetail() {
   const { id } = useParams();
+  const viewSource = useLocation().state?.from || 'direct'; // profile | search | direct
   const navigate = useNavigate();
   const wide = useWide();
+  const { user: me, isAdmin } = useAuth();
   const [video, setVideo] = useState(null);
   const [error, setError] = useState('');
   const [comments, setComments] = useState(0);
@@ -48,8 +51,16 @@ export default function VideoDetail() {
         <button onClick={back} className="absolute left-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/60" aria-label="Quay lại">
           <ArrowLeft size={20} />
         </button>
+        {video && (me?._id === video.author._id || isAdmin) && (
+          <Link
+            to={me?._id === video.author._id ? `/analytics/video/${video._id}` : `/admin/videos/${video._id}/analytics`}
+            className="absolute left-16 top-4 z-30 inline-flex h-10 items-center gap-1.5 rounded-full bg-black/40 px-4 text-sm font-bold text-white backdrop-blur transition hover:bg-black/60"
+          >
+            <BarChart3 size={16} /> Phân tích
+          </Link>
+        )}
         {video ? (
-          <VideoCard video={video} active near layout="detail" onCommentsInline={wide ? () => document.getElementById('comment-panel')?.querySelector('input')?.focus() : undefined} />
+          <VideoCard video={video} active near layout="detail" source={viewSource} onCommentsInline={wide ? () => document.getElementById('comment-panel')?.querySelector('input')?.focus() : undefined} />
         ) : (
           <div className="flex h-full items-center justify-center sm:py-4"><div className="skeleton h-full w-full sm:aspect-[9/16] sm:w-auto sm:rounded-[28px]" /></div>
         )}

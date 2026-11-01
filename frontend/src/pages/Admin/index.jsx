@@ -4,11 +4,12 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { BadgeCheck } from 'lucide-react';
 import Avatar from '../../components/common/Avatar';
+import AdminAnalytics from '../../components/analytics/AdminAnalytics';
 import * as adminApi from '../../api/admin.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount, timeAgo } from '../../utils/format';
 
-const TABS = [['users', 'Người dùng'], ['videos', 'Video'], ['flagged', 'Bị báo cáo'], ['logs', 'Nhật ký']];
+const TABS = [['analytics', 'Phân tích'], ['users', 'Người dùng'], ['videos', 'Video'], ['flagged', 'Bị báo cáo'], ['logs', 'Nhật ký']];
 
 function StatCard({ label, value, accent, i }) {
   return (
@@ -26,7 +27,7 @@ const Td = ({ children, className = '' }) => <td className={`px-3 py-3 align-mid
 const Act = ({ danger, ...p }) => <button className={`rounded-full px-3 py-1 text-xs font-bold transition ${danger ? 'text-coral hover:bg-coral/15' : 'hover:bg-ink-600'}`} {...p} />;
 
 export default function Admin() {
-  const [tab, setTab] = useState('users');
+  const [tab, setTab] = useState('analytics');
   const [stats, setStats] = useState(null);
   const [data, setData] = useState({});
 
@@ -36,6 +37,7 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
+    if (tab === 'analytics') return; // tab Phân tích tự tải dữ liệu riêng
     const load = { users: adminApi.getUsers, videos: adminApi.getAdminVideos, flagged: adminApi.getFlaggedVideos, logs: adminApi.getAuditLogs }[tab];
     setData((d) => ({ ...d, [tab]: d[tab] ?? null }));
     load().then((r) => setData((d) => ({ ...d, [tab]: r || [] }))).catch((e) => { setData((d) => ({ ...d, [tab]: [] })); toast.error(errMsg(e)); });
@@ -83,6 +85,7 @@ export default function Admin() {
             </Td>
             <Td className="text-right font-mono">{formatCount(v.viewCount)}</Td>
             <Td className="whitespace-nowrap text-right">
+              <Link to={`/admin/videos/${v._id}/analytics`} className="rounded-full px-3 py-1 text-xs font-bold transition hover:bg-ink-600">Phân tích</Link>
               {v.moderationStatus !== 'approved' && <Act onClick={() => videoAction(v, 'approve')}>Duyệt</Act>}
               <Act danger onClick={() => videoAction(v, 'remove')}>Gỡ</Act>
             </Td>
@@ -115,6 +118,7 @@ export default function Admin() {
         ))}
       </div>
 
+      {tab === 'analytics' ? <AdminAnalytics /> : (
       <div className="card overflow-x-auto p-2">
         {rows == null ? (
           <div className="space-y-2 p-2">{[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton block h-12 rounded-xl" />)}</div>
@@ -151,6 +155,7 @@ export default function Admin() {
           </ul>
         ) : videoTable(rows)}
       </div>
+      )}
     </div>
   );
 }

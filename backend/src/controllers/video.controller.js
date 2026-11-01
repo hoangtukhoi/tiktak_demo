@@ -111,8 +111,14 @@ exports.likeVideo = async (req, res) => {
  */
 exports.recordView = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
-  const watchTimeMs = Number(req.body?.watchTimeMs) || 0;
-  await videoService.recordView(req.params.id, watchTimeMs);
+  const { watchTimeMs, durationMs, completed, source } = req.body || {};
+  await videoService.recordView(req.params.id, {
+    watchTimeMs,
+    durationMs,
+    completed,
+    source,
+    viewerId: req.user?._id,
+  });
   success(res, null, 200, 'View recorded');
 };
 
@@ -164,4 +170,14 @@ exports.reportVideo = async (req, res) => {
 
   const report = await videoService.reportVideo(req.params.id, req.user._id, reason);
   success(res, report, 201, 'Report submitted');
-};
+};
+
+/**
+ * POST /api/videos/:id/share  Body: { method: 'native' | 'copy_link' }
+ * Ghi nhận một lượt chia sẻ (đăng nhập hay không đều được).
+ */
+exports.shareVideo = async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
+  const r = await videoService.recordShare(req.params.id, { userId: req.user?._id, method: req.body?.method });
+  success(res, r, 200, 'Share recorded');
+};

@@ -1,4 +1,4 @@
-import api, { API_URL } from './axiosClient';
+import api, { API_URL, USE_MOCK } from './axiosClient';
 
 const d = (r) => r.data.data;
 
@@ -34,7 +34,21 @@ export const createVideo = (data) => api.post('/videos', data).then((r) => norma
 export const updateVideo = (id, data) => api.patch(`/videos/${id}`, data).then((r) => normalizeVideo(d(r)));
 export const deleteVideo = (id) => api.delete(`/videos/${id}`);
 export const likeVideo = (id) => api.post(`/videos/${id}/like`).then(d); // backend hiện trả null -> UI tự toggle
-export const recordView = (id, watchTimeMs) => api.post(`/videos/${id}/view`, { watchTimeMs });
+/**
+ * Ghi 1 lượt xem khi người xem rời video: { watchTimeMs, durationMs, completed, source }.
+ * Dùng fetch `keepalive` để request vẫn được gửi khi đóng tab / chuyển trang.
+ * source: for_you | following | profile | search | direct
+ */
+export const recordView = (id, data = {}) => {
+  if (USE_MOCK) return api.post(`/videos/${id}/view`, data);
+  const token = localStorage.getItem('accessToken');
+  return fetch(`${API_URL}/videos/${id}/view`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(data),
+  });
+};
 export const searchVideos = (q, page = 1) => api.get('/videos/search', { params: { q, page } }).then(list);
 export const getUserVideos = (userId, cursor) => api.get(`/users/${userId}/videos`, { params: { cursor } }).then(list);
 
@@ -60,6 +74,9 @@ export const getProgressSSE = (jobId, onProgress, onDone, onError) => {
   es.onerror = () => { es.close(); onError?.(); };
   return es;
 };
+
+/** Ghi 1 lượt chia sẻ — method: 'native' (menu chia sẻ của máy) | 'copy_link' */
+export const shareVideo = (id, method) => api.post(`/videos/${id}/share`, { method }).then(d);
 
 // Comments — model Comment dùng `content`, controller đọc `text` -> gửi cả hai
 export const normalizeComment = (c) => ({

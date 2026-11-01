@@ -1,6 +1,6 @@
 import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Compass, Home, Plus, Shield, User, Users } from 'lucide-react';
+import { BarChart3, Compass, Home, Plus, Shield, User, Users } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 
 const GREETINGS = ['Xin chào', 'Hello', 'こんにちは', '안녕하세요', '你好', 'Bonjour', 'Hallo', 'Hola', 'สวัสดี', 'Halo'];
@@ -13,6 +13,7 @@ export default function Sidebar() {
     ['/search', Compass, 'Khám phá'],
     ['/upload', Plus, 'Tải lên'],
     isAuthenticated && [`/profile/${user?.username}`, User, 'Hồ sơ'],
+    isAuthenticated && ['/analytics', BarChart3, 'Phân tích'],
     isAdmin && ['/admin', Shield, 'Quản trị'],
   ].filter(Boolean);
 

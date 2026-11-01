@@ -146,7 +146,7 @@ export default function Home({ tab = 'for-you' }) {
         <div ref={scroller} className="no-scrollbar h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain">
           {videos.map((v, i) => (
             <div key={v._id} data-index={i} className="h-full snap-start snap-always">
-              <VideoCard video={v} active={i === active} near={Math.abs(i - active) <= 1} />
+              <VideoCard video={v} active={i === active} near={Math.abs(i - active) <= 1} source={tab === 'following' ? 'following' : 'for_you'} />
             </div>
           ))}
           {hasMore && <div ref={sentinel} className="h-px" />}

@@ -46,7 +46,9 @@ export default function Modal({ open, onClose, title, variant = 'sheet', childre
                 <X size={20} />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5" onPointerDownCapture={(e) => e.stopPropagation()}>
+            {/* Chặn ở pha bubble (không phải capture) để phần tử con (VD khung cắt ảnh) vẫn nhận được
+                pointerdown, nhưng sự kiện không lan lên làm kéo/đóng sheet */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5" onPointerDown={(e) => e.stopPropagation()}>
               {children}
             </div>
           </motion.div>

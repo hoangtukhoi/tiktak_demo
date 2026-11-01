@@ -7,10 +7,19 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Video = require('../models/Video');
 const Follow = require('../models/Follow');
+const FollowEvent = require('../models/FollowEvent');
+const ProfileViewEvent = require('../models/ProfileViewEvent');
+const redis = require('../config/redis');
 const videoService = require('../services/video.service');
 const notificationService = require('../services/notification.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 const escapeRegex = require('../utils/escapeRegex');
+const sharp = require('sharp');
+const storageService = require('../services/storage.service');
+const { updateProfileSchema, normalizeLinks } = require('../validators/user.validator');
+
+// Số ngày phải chờ giữa 2 lần đổi username (giống TikTok: 30 ngày). 0 = không giới hạn.
+const USERNAME_CHANGE_DAYS = Number(process.env.USERNAME_CHANGE_DAYS ?? 30);
 
 /**
  * Frontend có chỗ gọi theo username (/users/:username), có chỗ theo _id
@@ -35,8 +44,22 @@ exports.getProfile = async (req, res) => {
   try {
     const { username } = req.params;
 
-    const user = await findUserByParam(username).lean();
+    const user = await findUserByParam(username)
+      .select('-googleId -lastLoginAt -usernameChangedAt')
+      .lean();
     if (!user) return error(res, 'User not found', 404);
+    // Email chỉ trả cho chính chủ, không lộ trên hồ sơ công khai
+    const isOwner = req.user && String(req.user._id) === String(user._id);
+    if (!isOwner) delete user.email;
+
+    // Ghi lượt xem hồ sơ (không tính chủ tài khoản; mỗi người xem/IP tối đa 1 lần / 30 phút)
+    if (!isOwner) {
+      const who = req.user ? `u:${req.user._id}` : `ip:${req.ip}`;
+      redis
+        .set(`pv:${user._id}:${who}`, '1', 'EX', 1800, 'NX')
+        .then((ok) => ok && ProfileViewEvent.create({ profileUserId: user._id, viewerId: req.user?._id || null }))
+        .catch(() => {});
+    }
 
     // Aggregate total likes across all user videos
     const likeAgg = await Video.aggregate([
@@ -73,30 +96,95 @@ exports.getProfile = async (req, res) => {
  * Only `bio` and `avatarUrl` are whitelisted to prevent mass-assignment.
  */
 exports.updateProfile = async (req, res) => {
-  try {
-    // Whitelist: only allow safe fields
-    const ALLOWED_FIELDS = ['bio', 'avatarUrl'];
-    const updates = {};
-    ALLOWED_FIELDS.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
-    });
-
-    if (Object.keys(updates).length === 0) {
-      return error(res, 'No valid fields provided. Allowed: bio, avatarUrl', 400);
-    }
-
-    const user = await User.findByIdAndUpdate(req.user._id, updates, {
-      new: true,
-      runValidators: true,
-    });
-
-    return success(res, user, 200, 'Profile updated');
-  } catch (err) {
-    console.error('[updateProfile]', err);
-    return error(res, 'Failed to update profile', 500);
+  const { value, error: vErr } = updateProfileSchema.validate(req.body || {}, {
+    abortEarly: false,
+    stripUnknown: false,
+  });
+  if (vErr) {
+    return error(res, vErr.details[0].message, 400, vErr.details.map((d) => d.message));
   }
+
+  const updates = {};
+  if (value.displayName !== undefined) updates.displayName = value.displayName;
+  if (value.bio !== undefined) updates.bio = value.bio;
+  if (value.avatarUrl === null) updates.avatarUrl = null;
+
+  // Liên kết ngoài: chấp nhận URL hoặc @tài_khoản, lưu dạng URL đầy đủ
+  if (value.links) {
+    const links = normalizeLinks(value.links); // ném 400 nếu sai
+    for (const [k, v] of Object.entries(links)) updates[`links.${k}`] = v;
+  }
+
+  // Đổi username: kiểm tra trùng (không phân biệt hoa thường) + giới hạn tần suất
+  if (value.username && value.username !== req.user.username) {
+    const last = req.user.usernameChangedAt;
+    if (USERNAME_CHANGE_DAYS > 0 && last) {
+      const next = new Date(last.getTime() + USERNAME_CHANGE_DAYS * 86400000);
+      if (next > new Date()) {
+        return error(
+          res,
+          `Bạn chỉ được đổi username ${USERNAME_CHANGE_DAYS} ngày một lần. Lần tới: ${next.toLocaleDateString('vi-VN')}`,
+          429
+        );
+      }
+    }
+    const taken = await User.findOne({ username: value.username, _id: { $ne: req.user._id } })
+      .collation({ locale: 'en', strength: 2 })
+      .select('_id')
+      .lean();
+    if (taken) return error(res, 'Username này đã có người dùng', 409);
+    updates.username = value.username;
+    updates.usernameChangedAt = new Date();
+  }
+
+  if (Object.keys(updates).length === 0) return success(res, req.user, 200, 'Không có thay đổi');
+
+  try {
+    const user = await User.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+    return success(res, user, 200, 'Đã cập nhật hồ sơ');
+  } catch (err) {
+    // Hai người đổi cùng username một lúc → unique index báo trùng
+    if (err.code === 11000) return error(res, 'Username này đã có người dùng', 409);
+    throw err;
+  }
+};
+
+/**
+ * POST /users/me/avatar  (multipart/form-data, trường "avatar")
+ * Cắt vuông 512×512, nén WebP, lưu MinIO rồi cập nhật avatarUrl.
+ */
+exports.uploadAvatar = async (req, res) => {
+  if (!req.file) return error(res, 'Chưa chọn ảnh (trường "avatar")', 400);
+
+  let image;
+  try {
+    image = await sharp(req.file.buffer)
+      .rotate() // xoay theo EXIF (ảnh chụp điện thoại)
+      .resize(512, 512, { fit: 'cover', position: 'attention' })
+      .webp({ quality: 85 })
+      .toBuffer();
+  } catch {
+    return error(res, 'Không đọc được file ảnh. Hãy dùng JPG, PNG hoặc WebP', 400);
+  }
+
+  const avatarUrl = await storageService.uploadBuffer(
+    `avatars/${req.user._id}/${Date.now()}.webp`,
+    image,
+    'image/webp',
+    storageService.BUCKETS.THUMBNAILS,
+    storageService.IMMUTABLE_CACHE
+  );
+
+  const oldUrl = req.user.avatarUrl;
+  const user = await User.findByIdAndUpdate(req.user._id, { avatarUrl }, { new: true });
+
+  // Xoá ảnh cũ nếu do hệ thống lưu (không chặn response)
+  const oldKey = storageService.keyFromUrl(oldUrl, storageService.BUCKETS.THUMBNAILS);
+  if (oldKey && oldKey.startsWith('avatars/')) {
+    storageService.deleteFile(oldKey, storageService.BUCKETS.THUMBNAILS).catch(() => {});
+  }
+
+  return success(res, user, 200, 'Đã cập nhật ảnh đại diện');
 };
 
 /**
@@ -162,7 +250,7 @@ exports.searchUsers = async (req, res) => {
 
     const users = await User.find(
       { username: { $regex: escapeRegex(q.trim().slice(0, 50)), $options: 'i' }, bannedAt: null },
-      'username avatarUrl bio followerCount videoCount'
+      'username displayName avatarUrl bio followerCount videoCount isVerified'
     )
       .limit(10)
       .lean();
@@ -203,6 +291,7 @@ exports.followUser = async (req, res) => {
     if (existing) {
       // --- UNFOLLOW ---
       await existing.deleteOne();
+      FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'unfollow' }).catch(() => {});
 
       // Decrement counters atomically (floor at 0 via $max is not natively supported,
       // so we use a conditional update to avoid going negative)
@@ -221,6 +310,7 @@ exports.followUser = async (req, res) => {
       followerId: req.user._id,
       followingId: targetUser._id,
     });
+    FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'follow' }).catch(() => {});
 
     await User.findByIdAndUpdate(req.user._id, { $inc: { followingCount: 1 } });
     await User.findByIdAndUpdate(targetUser._id, { $inc: { followerCount: 1 } });

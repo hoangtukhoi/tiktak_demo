@@ -137,7 +137,8 @@ const routes = [
   ['delete', /^\/comments\/([^/]+)$/, (_, p, c, [id]) => authed(() => { const i = comments.findIndex((x) => x._id === id); if (i > -1) comments.splice(i, 1); return ok(null); })],
 
   ['get', /^\/users\/search$/, (_, p) => ok(users.filter((u) => u.username.includes((p.q || '').toLowerCase())))],
-  ['patch', /^\/users\/me$/, (b) => authed(() => { setMe({ ...me, ...b }); return ok(me); })],
+  ['patch', /^\/users\/me$/, (b) => authed(() => { setMe({ ...me, ...b, links: { ...(me.links || {}), ...(b.links || {}) } }); return ok(me); })],
+  ['post', /^\/users\/me\/avatar$/, (b, p, cfg) => authed(() => { setMe({ ...me, avatarUrl: URL.createObjectURL(cfg.data.get('avatar')) }); return ok(me); })],
   ['get', /^\/users\/([^/]+)\/videos$/, (_, p, c, [id]) => ok(videos.filter((v) => v.userId === id && v.status !== 'failed').map(pop))],
   ['get', /^\/users\/([^/]+)$/, (_, p, c, [name]) => { const u = users.find((x) => x.username === name) || (me?.username === name ? me : null); return u ? ok(u) : fail('User not found', 404); }],
 

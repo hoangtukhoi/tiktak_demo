@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { BadgeCheck, Heart, Music2, Volume2, VolumeX } from 'lucide-react';
@@ -11,7 +11,7 @@ import Modal from '../common/Modal';
 import useVideoPlayer from '../../hooks/useVideoPlayer';
 import useAuth from '../../hooks/useAuth';
 import useVideoStore from '../../store/slices/videoSlice';
-import { likeVideo, recordView } from '../../api/video.api';
+import { likeVideo, recordView, shareVideo } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount, timeAgo } from '../../utils/format';
 
@@ -44,7 +44,7 @@ function Subtitles({ text, frac }) {
   );
 }
 
-function VideoCard({ video: initial, active, near = true, layout = 'feed', onCommentsInline }) {
+function VideoCard({ video: initial, active, near = true, layout = 'feed', onCommentsInline, source = 'direct' }) {
   const [video, setVideo] = useState(initial);
   const [bursts, setBursts] = useState([]);
   const [expanded, setExpanded] = useState(false);
@@ -58,12 +58,48 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 
   useEffect(() => setVideo(initial), [initial]);
 
-  // Ghi nhận lượt xem sau 2 giây
+  // ── Đo thời gian xem thật (chỉ tính lúc video đang phát) ──
+  // Gửi 1 lượt xem khi rời video (vuốt qua, chuyển trang, đóng tab) nếu đã xem ≥ 1 giây.
+  const watch = useRef({ ms: 0, last: null, looped: false });
+  useEffect(() => {
+    const w = watch.current;
+    if (!active || !player.playing) { w.last = null; return; }
+    const t = player.time;
+    if (w.last !== null) {
+      const d = t - w.last;
+      if (d > 0 && d < 1.5) w.ms += d * 1000; // bỏ qua bước nhảy do tua
+      else if (d < 0 && player.duration && w.last > player.duration - 1.5) w.looped = true; // phát lại từ đầu
+    }
+    w.last = t;
+  }, [player.time, player.playing, active, player.duration]);
+
   useEffect(() => {
     if (!active || !video.src) return;
-    const t = setTimeout(() => recordView(video._id, 2000).catch(() => {}), 2000);
-    return () => clearTimeout(t);
-  }, [active, video._id, video.src]);
+    watch.current = { ms: 0, last: null, looped: false };
+    let sent = false;
+    const flush = () => {
+      if (sent) return;
+      const { ms, looped } = watch.current;
+      if (ms < 1000) return;
+      sent = true;
+      const durationMs = Math.round((player.videoRef.current?.duration || 0) * 1000);
+      recordView(video._id, {
+        watchTimeMs: Math.round(ms),
+        durationMs,
+        completed: looped || (durationMs > 0 && ms >= durationMs * 0.9),
+        source,
+      }).catch(() => {});
+    };
+    const onHide = () => document.visibilityState === 'hidden' && flush();
+    addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHide);
+      flush();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, video._id, video.src, source]);
 
   // Đồng bộ audio lồng tiếng với video (video bị tắt tiếng khi có audioUrl)
   useEffect(() => {
@@ -94,9 +130,11 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
   const share = async () => {
     const url = `${location.origin}/watch/${video._id}`;
     try {
+      let method = 'native';
       if (navigator.share) await navigator.share({ title: video.title, url });
-      else { await navigator.clipboard.writeText(url); toast('Đã sao chép liên kết', { icon: '🔗' }); }
+      else { await navigator.clipboard.writeText(url); method = 'copy_link'; toast('Đã sao chép liên kết', { icon: '🔗' }); }
       setVideo((v) => ({ ...v, shareCount: v.shareCount + 1 }));
+      shareVideo(video._id, method).catch(() => {}); // ghi nhận cho trang phân tích
     } catch { /* người dùng huỷ */ }
   };
 
@@ -206,13 +244,15 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 export default memo(VideoCard);
 
 /** Ô video dạng lưới (Profile, Search): rê chuột để xem trước, `index` dùng cho hiệu ứng xuất hiện so le */
-export function VideoTile({ video, index = 0, onDelete }) {
+export function VideoTile({ video, index = 0, onDelete, from }) {
   const [hover, setHover] = useState(false);
+  const navigate = useNavigate();
   const ready = !video.status || video.status === 'ready';
   return (
     <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index, 12) * 0.04, duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}>
       <Link
         to={`/watch/${video._id}`}
+        state={from ? { from } : undefined}
         onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
         className="group relative block aspect-[3/4] overflow-hidden rounded-2xl bg-ink-700 transition duration-500 ease-out hover:-translate-y-1 hover:-rotate-[0.6deg]"
       >
@@ -227,6 +267,14 @@ export function VideoTile({ video, index = 0, onDelete }) {
         <span className="absolute bottom-2.5 left-3 font-mono text-xs font-bold text-white">▶ {formatCount(video.viewCount)}</span>
         {!ready && <span className="absolute left-2.5 top-2.5 rounded-full bg-lime px-2 py-0.5 font-mono text-[10px] font-bold text-ink">ĐANG XỬ LÝ</span>}
         <p className="absolute inset-x-3 bottom-8 line-clamp-2 text-sm font-semibold text-white opacity-0 transition duration-300 group-hover:opacity-100">{video.title}</p>
+        {onDelete && ready && (
+          <button
+            onClick={(e) => { e.preventDefault(); navigate(`/analytics/video/${video._id}`); }}
+            className="absolute left-2 top-2 rounded-full bg-black/50 px-2.5 py-1 text-xs font-bold text-white opacity-0 backdrop-blur transition hover:bg-lime hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            Phân tích
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={(e) => { e.preventDefault(); onDelete(video); }}

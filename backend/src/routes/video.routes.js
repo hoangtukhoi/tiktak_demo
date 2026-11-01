@@ -28,7 +28,8 @@ router.delete('/:id', authenticate, videoController.deleteVideo);
 // ─── Engagement sub-routes ────────────────────────────────────────────────────
 
 router.post('/:id/like', authenticate, videoController.likeVideo);
-router.post('/:id/view', viewLimiter, videoController.recordView);
+router.post('/:id/view', viewLimiter, optionalAuth, videoController.recordView);
+router.post('/:id/share', viewLimiter, optionalAuth, videoController.shareVideo);
 
 // Report a video (authenticated; one report per user per video)
 router.post('/:id/report', authenticate, videoController.reportVideo);

@@ -6,6 +6,8 @@ const Report = require('../models/Report');
 const User = require('../models/User');
 const Comment = require('../models/Comment');
 const AudioTrack = require('../models/AudioTrack');
+const ViewEvent = require('../models/ViewEvent');
+const ShareEvent = require('../models/ShareEvent');
 const redis = require('../config/redis');
 
 // Thời gian cache feed "For You" trong Redis (giây)
@@ -482,8 +484,34 @@ exports.getTrendingHashtags = async (limit = 10) => {
  * @param {number} watchTimeMs
  * @returns {Promise<void>}
  */
-exports.recordView = async (videoId, watchTimeMs = 0) => {
-  await Video.findByIdAndUpdate(videoId, { $inc: { viewCount: 1 } });
+const VIEW_SOURCES = ['for_you', 'following', 'profile', 'search', 'direct', 'other'];
+const MAX_WATCH_MS = 60 * 60 * 1000; // chặn giá trị vô lý (tab mở cả ngày)
+
+exports.recordView = async (videoId, { watchTimeMs = 0, durationMs = 0, completed = false, source = 'other', viewerId = null } = {}) => {
+  const video = await Video.findOneAndUpdate(
+    { _id: videoId, status: 'ready' },
+    { $inc: { viewCount: 1 } },
+    { new: true, projection: { userId: 1, durationMs: 1 } }
+  ).lean();
+  if (!video) httpError('Video not found', 404);
+
+  // Chủ video tự xem thì vẫn tăng viewCount nhưng không tính vào số liệu phân tích
+  if (viewerId && String(viewerId) === String(video.userId)) return;
+
+  const watch = Math.min(Math.max(Number(watchTimeMs) || 0, 0), MAX_WATCH_MS);
+  const dur = Number(video.durationMs) || Math.max(Number(durationMs) || 0, 0);
+  const ratio = dur > 0 ? Math.min(1, watch / dur) : 0;
+
+  await ViewEvent.create({
+    videoId: video._id,
+    creatorId: video.userId,
+    viewerId: viewerId || null,
+    watchTimeMs: watch,
+    videoDurationMs: dur,
+    watchedRatio: ratio,
+    completed: Boolean(completed) || ratio >= 0.9,
+    source: VIEW_SOURCES.includes(source) ? source : 'other',
+  });
 };
 
 /**
@@ -521,4 +549,26 @@ exports.reportVideo = async (videoId, reporterId, reason) => {
   }
 
   return report;
-};
+};
+
+/**
+ * Ghi 1 lượt chia sẻ video: tăng shareCount + lưu ShareEvent cho trang phân tích.
+ * @param {'native'|'copy_link'|'other'} method
+ */
+exports.recordShare = async (videoId, { userId = null, method = 'other' } = {}) => {
+  const video = await Video.findOneAndUpdate(
+    { _id: videoId, status: 'ready' },
+    { $inc: { shareCount: 1 } },
+    { new: true, projection: { userId: 1, shareCount: 1 } }
+  ).lean();
+  if (!video) httpError('Video not found', 404);
+  if (!userId || String(userId) !== String(video.userId)) {
+    await ShareEvent.create({
+      videoId: video._id,
+      creatorId: video.userId,
+      userId: userId || null,
+      method: ['native', 'copy_link'].includes(method) ? method : 'other',
+    });
+  }
+  return { shareCount: video.shareCount };
+};

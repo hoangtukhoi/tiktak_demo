@@ -10,7 +10,7 @@ import { formatCount } from '../../utils/format';
 
 function Grid({ videos }) {
   if (videos === null) return <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-2xl" />)}</div>;
-  return <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} />)}</div>;
+  return <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} from="search" />)}</div>;
 }
 
 export default function Search() {
