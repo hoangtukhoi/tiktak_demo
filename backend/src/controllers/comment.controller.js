@@ -10,6 +10,8 @@ const Like = require('../models/Like');
 const notificationService = require('../services/notification.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 
+const MAX_COMMENT_LENGTH = 500;
+
 /**
  * GET /comments/video/:videoId
  * Returns top-level comments (parentId = null) for a video using cursor-based pagination.
@@ -18,7 +20,7 @@ const { success, error, paginated } = require('../utils/apiResponse');
 exports.getComments = async (req, res) => {
   try {
     const { videoId } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const { cursor } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(videoId)) {
@@ -81,7 +83,7 @@ exports.getComments = async (req, res) => {
 exports.getReplies = async (req, res) => {
   try {
     const { id } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const { cursor } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -143,18 +145,28 @@ exports.getReplies = async (req, res) => {
  */
 exports.createComment = async (req, res) => {
   try {
-    const { videoId, content, parentId } = req.body;
+    const { videoId, parentId } = req.body || {};
+    const content = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
 
     if (!videoId || !content) {
       return error(res, 'videoId and content are required', 400);
+    }
+    if (content.length > MAX_COMMENT_LENGTH) {
+      return error(res, `Bình luận tối đa ${MAX_COMMENT_LENGTH} ký tự`, 400);
     }
     if (!mongoose.Types.ObjectId.isValid(videoId)) {
       return error(res, 'Invalid videoId', 400);
     }
 
-    // Ensure the video exists and allows comments
+    // Video phải tồn tại và người bình luận được phép xem nó
+    // (video riêng tư / đã xoá / chưa xử lý xong / bị gỡ → 404 với người ngoài)
     const video = await Video.findById(videoId);
     if (!video) return error(res, 'Video not found', 404);
+    const isOwner = String(video.userId) === String(req.user._id);
+    const isStaff = ['admin', 'moderator'].includes(req.user.role);
+    const isPublic = video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
+    if (!isPublic && !isOwner && !isStaff) return error(res, 'Video not found', 404);
+    if (video.status === 'deleted') return error(res, 'Video not found', 404);
     if (!video.allowComment) return error(res, 'Comments are disabled for this video', 403);
 
     // Validate parent comment if this is a reply
@@ -165,6 +177,10 @@ exports.createComment = async (req, res) => {
       }
       parentComment = await Comment.findOne({ _id: parentId, isDeleted: false });
       if (!parentComment) return error(res, 'Parent comment not found', 404);
+      // Không cho trả lời bình luận của video khác
+      if (String(parentComment.videoId) !== String(video._id)) {
+        return error(res, 'Parent comment belongs to another video', 400);
+      }
     }
 
     // Create the comment using `content` (not `text`) as defined in the schema
@@ -241,9 +257,9 @@ exports.deleteComment = async (req, res) => {
       return error(res, 'Forbidden', 403);
     }
 
-    // Soft delete
-    comment.isDeleted = true;
-    await comment.save();
+    // Soft delete nguyên tử: 2 request xoá cùng lúc thì chỉ 1 request được giảm bộ đếm
+    const { modifiedCount } = await Comment.updateOne({ _id: id, isDeleted: false }, { isDeleted: true });
+    if (!modifiedCount) return error(res, 'Comment not found', 404);
 
     // Lúc tạo, cả comment gốc lẫn reply đều +1 commentCount của video,
     // nên lúc xoá cũng luôn -1 (không cho xuống âm).

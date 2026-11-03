@@ -82,7 +82,8 @@ export default function Search() {
           <div className="mb-6 flex gap-1 rounded-full bg-ink-800 p-1 sm:w-max">
             {[['videos', 'Video', videos?.length], ['users', 'Người dùng', users?.length]].map(([k, label, n]) => (
               <button key={k} onClick={() => setTab(k)} className="relative flex-1 rounded-full px-5 py-2 text-sm font-bold sm:flex-none">
-                {tab === k && <motion.span layoutId="search-tab" className="absolute inset-0 rounded-full bg-lime" transition={{ type: 'spring', damping: 30, stiffness: 380 }} />}
+                {/* Không dùng layoutId ở đây: shared-layout làm AnimatePresence của khung trang kẹt khi rời trang Search */}
+                <span className={`absolute inset-0 rounded-full bg-lime transition-opacity duration-200 ${tab === k ? 'opacity-100' : 'opacity-0'}`} />
                 <span className={`relative ${tab === k ? 'text-ink' : 'text-paper-dim'}`}>{label} {n != null && <span className="font-mono text-xs opacity-70">{n}</span>}</span>
               </button>
             ))}

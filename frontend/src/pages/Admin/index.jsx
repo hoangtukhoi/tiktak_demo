@@ -112,7 +112,7 @@ export default function Admin() {
       <div className="mb-5 flex gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 sm:w-max">
         {TABS.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} className="relative shrink-0 rounded-full px-5 py-2 text-sm font-bold">
-            {tab === k && <motion.span layoutId="admin-tab" className="absolute inset-0 rounded-full bg-paper" transition={{ type: 'spring', damping: 30, stiffness: 380 }} />}
+            <span className={`absolute inset-0 rounded-full bg-paper transition-opacity duration-200 ${tab === k ? 'opacity-100' : 'opacity-0'}`} />
             <span className={`relative ${tab === k ? 'text-ink' : 'text-paper-dim'}`}>{label}</span>
           </button>
         ))}

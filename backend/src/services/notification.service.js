@@ -32,7 +32,7 @@ exports.createNotification = async (userId, type, payload) => {
  * @returns {Promise<{ notifications: Notification[], nextCursor: ObjectId|null, hasMore: boolean }>}
  */
 exports.getNotifications = async (userId, cursor, limit = 20) => {
-  const safeLimit = Math.min(parseInt(limit) || 20, 100);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
 
   const query = { userId };
   if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
@@ -86,4 +86,4 @@ exports.markAllAsRead = async (userId) => {
  */
 exports.getUnreadCount = async (userId) => {
   return Notification.countDocuments({ userId, isRead: false });
-};
+};

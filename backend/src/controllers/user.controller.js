@@ -209,7 +209,8 @@ exports.deleteAccount = async (req, res) => {
 exports.getUserVideos = async (req, res) => {
   try {
     const { username } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+    // Kẹp trong [1, 50]: limit âm/0 không được làm lộ toàn bộ danh sách
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
     const { cursor } = req.query;
 
     // Resolve username → _id so videoService can query by userId
@@ -290,17 +291,17 @@ exports.followUser = async (req, res) => {
 
     if (existing) {
       // --- UNFOLLOW ---
-      await existing.deleteOne();
+      // deleteOne trả về deletedCount: 2 request bỏ theo dõi cùng lúc thì chỉ
+      // request thực sự xoá được bản ghi mới được giảm bộ đếm (tránh đếm âm).
+      const { deletedCount } = await Follow.deleteOne({ _id: existing._id });
+      if (!deletedCount) return success(res, { following: false }, 200, `Unfollowed @${username}`);
       FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'unfollow' }).catch(() => {});
 
-      // Decrement counters atomically (floor at 0 via $max is not natively supported,
-      // so we use a conditional update to avoid going negative)
-      await User.findByIdAndUpdate(req.user._id, {
-        $inc: { followingCount: -1 },
-      });
-      await User.findByIdAndUpdate(targetUser._id, {
-        $inc: { followerCount: -1 },
-      });
+      // Không chặn "> 0" ở đây: mỗi lần xoá thành công luôn ứng với 1 lần tạo thành công (+1),
+      // nên +1/−1 luôn triệt tiêu đúng. Nếu chặn, khi lệnh −1 chạy trước lệnh +1 của request
+      // theo dõi đang song song thì −1 bị bỏ qua và bộ đếm lệch vĩnh viễn.
+      await User.updateOne({ _id: req.user._id }, { $inc: { followingCount: -1 } });
+      await User.updateOne({ _id: targetUser._id }, { $inc: { followerCount: -1 } });
 
       return success(res, { following: false }, 200, `Unfollowed @${username}`);
     }

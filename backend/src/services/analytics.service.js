@@ -1025,4 +1025,4 @@ exports.getCreatorCompare = async (userId, ids) => {
   });
 };
 
-exports._internals = { windowOf, dayKey, pctChange, fill, buildInsights };
+exports._internals = { windowOf, dayKey, startOfLocalDay, pctChange, metric, rate, fill, buildInsights };

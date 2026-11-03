@@ -42,7 +42,9 @@ const pageOf = (cursor) => (isPageNumber(cursor) ? parseInt(cursor, 10) : 0);
  * - cursor là ObjectId → dùng _id < cursor
  * nextCursor luôn trả về số trang kế tiếp (khớp cách frontend gọi).
  */
-const findPaged = async (query, cursor, limit) => {
+const findPaged = async (query, cursor, rawLimit) => {
+  // limit ≤ 0 sẽ thành .limit(0) = "không giới hạn" trong MongoDB → kẹp tối thiểu 1
+  const limit = Math.max(1, Number(rawLimit) || 1);
   const page = pageOf(cursor);
   const docs = await Video.find({ ...query, ...buildCursorQuery(cursor) })
     .sort({ _id: -1 })

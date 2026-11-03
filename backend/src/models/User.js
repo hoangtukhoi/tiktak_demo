@@ -45,6 +45,8 @@ userSchema.pre('save', async function (next) {
 
 // So sánh password
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  // Tài khoản đăng ký bằng Google không có mật khẩu → luôn sai (thay vì bcrypt ném lỗi 500)
+  if (!this.password || typeof candidatePassword !== 'string') return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

@@ -16,7 +16,9 @@ const TAB_LOADERS = {
   followers: analytics.getCreatorFollowers,
 };
 exports.getMyAnalyticsTab = async (req, res) => {
-  const load = TAB_LOADERS[req.params.tab || 'overview'];
+  const tab = req.params.tab || 'overview';
+  // Object.hasOwn: tránh tab = "constructor" / "__proto__" lấy nhầm thuộc tính của Object
+  const load = Object.hasOwn(TAB_LOADERS, tab) ? TAB_LOADERS[tab] : null;
   if (!load) return error(res, 'Unknown analytics tab', 404);
   const days = analytics.parseRange(req.query.range, 7);
   success(res, await load(req.user._id, days));
