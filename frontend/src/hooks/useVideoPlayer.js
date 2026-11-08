@@ -7,6 +7,14 @@ import useVideoStore from '../store/slices/videoSlice';
  */
 export default function useVideoPlayer(src, active, { forceMute = false } = {}) {
   const videoRef = useRef(null);
+  // Phần tử <video> chỉ được tạo khi video ở gần màn hình (near). Lưu nó vào state
+  // để các effect bên dưới chạy lại đúng lúc <video> xuất hiện / biến mất —
+  // nếu chỉ dùng useRef, video thứ 3 trở đi không bao giờ được gắn nguồn phát.
+  const [el, setEl] = useState(null);
+  const attachRef = useCallback((node) => {
+    videoRef.current = node;
+    setEl(node);
+  }, []);
   const barRef = useRef(null);
   const { isMuted, volume } = useVideoStore();
   const [playing, setPlaying] = useState(false);
@@ -16,9 +24,9 @@ export default function useVideoPlayer(src, active, { forceMute = false } = {}) 
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(false);
 
-  // Gắn nguồn
+  // Gắn nguồn (mỗi khi có <video> mới hoặc đổi nguồn)
   useEffect(() => {
-    const v = videoRef.current;
+    const v = el;
     if (!v || !src) return;
     setError(false);
     if (src.includes('.m3u8') && !v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -35,7 +43,7 @@ export default function useVideoPlayer(src, active, { forceMute = false } = {}) 
     }
     v.src = src;
     return () => { v.removeAttribute('src'); v.load(); };
-  }, [src]);
+  }, [src, el]);
 
   // Rời video -> reset
   useEffect(() => {
@@ -47,20 +55,20 @@ export default function useVideoPlayer(src, active, { forceMute = false } = {}) 
 
   // Phát / dừng
   useEffect(() => {
-    const v = videoRef.current;
+    const v = el;
     if (!v || !src) return;
     if (active && !userPaused) {
       v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
     } else v.pause();
-  }, [active, userPaused, src]);
+  }, [active, userPaused, src, el]);
 
   // Âm lượng
   useEffect(() => {
-    const v = videoRef.current;
+    const v = el;
     if (!v) return;
     v.muted = forceMute || isMuted;
     v.volume = volume;
-  }, [isMuted, volume, forceMute]);
+  }, [isMuted, volume, forceMute, el]);
 
   // Thanh tiến trình mượt
   useEffect(() => {
@@ -97,5 +105,5 @@ export default function useVideoPlayer(src, active, { forceMute = false } = {}) 
     onError: () => setError(true),
   };
 
-  return { videoRef, barRef, bind, playing, paused: userPaused, buffering, time, duration, error, toggle, seek };
+  return { videoRef, attachRef, barRef, bind, playing, paused: userPaused, buffering, time, duration, error, toggle, seek };
 }

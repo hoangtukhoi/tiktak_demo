@@ -74,3 +74,21 @@ Segment nào đọc dài hơn khoảng thời gian gốc sẽ được tăng t�
   từng ngôn ngữ, chưa giữ được đặc trưng giọng người nói gốc.
 - Chưa có lip-sync (Wav2Lip).
 - Model dịch tải toàn bộ vào RAM, cần khoảng 3 GB cho bản 600M.
+
+## Kiểm duyệt bình luận
+
+Endpoint `POST /moderate/comments` (header `x-internal-key`) nhận `{ "texts": ["..."] }` và trả
+`{ "results": [{ "label", "score", "scores" }] }`. `score` (0–1) là xác suất bình luận **không sạch**.
+Backend dùng điểm này để hiện ngay, đưa vào hàng chờ cho admin, hoặc tự ẩn (xem `COMMENT_MODERATION_*` trong `backend/.env.example`).
+
+Cắm model đã train:
+
+1. Chép model vào `ai-service/moderation_model/` (xem README trong thư mục đó).
+2. Đặt biến môi trường (file `.env` ở thư mục gốc khi chạy docker compose, hoặc `ai-service/.env` khi chạy trực tiếp):
+   - `AI_MODERATION_MODEL_PATH` — thư mục HuggingFace hoặc file `.pkl`/`.joblib`
+   - `AI_MODERATION_CLEAN_LABELS` — tên các nhãn "sạch" (VD `clean` hoặc `0`)
+   - `AI_MODERATION_LABEL_NAMES` — nếu model chỉ lưu số lớp, đặt tên theo thứ tự (VD `clean,offensive,hate`)
+3. Nếu lúc train có tiền xử lý riêng (tách từ cho PhoBERT, bỏ dấu…), sửa hàm `_preprocess` trong `app/moderation.py` cho giống.
+4. Kiểm tra: `GET /health` có `moderation_loaded: true`.
+
+Chưa cắm model → endpoint trả 503 và backend tự dùng bộ lọc từ khoá (chỉ đưa bình luận nghi vấn vào hàng chờ, không tự ẩn).

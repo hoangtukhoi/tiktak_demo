@@ -1,5 +1,5 @@
 /**
- * Redis giả lập trong bộ nhớ — đủ các lệnh backend dùng (get/set có EX, NX, del).
+ * Redis giả lập trong bộ nhớ — đủ các lệnh backend dùng (get/set có EX, NX, getdel, del).
  * Dùng cho integration test để không cần chạy Redis thật.
  */
 class FakeRedis {
@@ -24,6 +24,12 @@ class FakeRedis {
     const expireAt = ex >= 0 ? Date.now() + Number(flags[ex + 1]) * 1000 : null;
     this.store.set(key, { value: String(value), expireAt });
     return 'OK';
+  }
+
+  async getdel(key) {
+    const value = await this.get(key);
+    this.store.delete(key);
+    return value;
   }
 
   async del(...keys) {

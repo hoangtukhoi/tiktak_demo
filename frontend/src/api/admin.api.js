@@ -14,3 +14,12 @@ export const getFlaggedVideos = () => api.get('/admin/videos/flagged').then((r) 
 export const removeVideo = (id) => api.delete(`/admin/videos/${id}`);
 export const approveVideo = (id) => api.post(`/admin/videos/${id}/approve`);
 export const getAuditLogs = () => api.get('/admin/audit-logs').then(d);
+
+// Báo cáo video gom theo video: { ...video, openReports, reasonCounts, reports[] }
+export const getReports = (status = 'open') =>
+  api.get('/admin/reports', { params: { status } }).then((r) => (d(r) || []).map((v) => ({ ...normalizeVideo(v), reports: v.reports || [] })));
+
+// Hàng chờ kiểm duyệt bình luận: status = pending | rejected | approved
+export const getModerationComments = (status = 'pending') => api.get('/admin/comments', { params: { status } }).then(d);
+export const approveComment = (id) => api.post(`/admin/comments/${id}/approve`).then(d);
+export const rejectComment = (id) => api.post(`/admin/comments/${id}/reject`).then(d);

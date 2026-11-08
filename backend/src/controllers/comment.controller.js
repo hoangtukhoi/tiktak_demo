@@ -7,10 +7,21 @@ const mongoose = require('mongoose');
 const Comment = require('../models/Comment');
 const Video = require('../models/Video');
 const Like = require('../models/Like');
-const notificationService = require('../services/notification.service');
+const commentService = require('../services/comment.service');
+const moderationService = require('../services/commentModeration.service');
+const { resolveMentions } = require('../utils/mentions');
+const privacyService = require('../services/privacy.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 
 const MAX_COMMENT_LENGTH = 500;
+const AUTHOR_FIELDS = 'username displayName avatarUrl isVerified';
+
+/**
+ * Bình luận nào người xem được thấy: bình luận công khai + bình luận của chính mình
+ * (kể cả đang chờ duyệt / bị ẩn, để tác giả biết trạng thái).
+ */
+const visibleTo = (user) =>
+  user ? { $or: [Comment.PUBLIC_FILTER, { userId: user._id }] } : Comment.PUBLIC_FILTER;
 
 /**
  * GET /comments/video/:videoId
@@ -32,7 +43,10 @@ exports.getComments = async (req, res) => {
       videoId,
       parentId: null,
       isDeleted: false,
+      ...visibleTo(req.user),
     };
+    const blocked = await privacyService.blockedIdSet(req.user?._id);
+    if (blocked.size) query.userId = { $nin: [...blocked].map((id) => new mongoose.Types.ObjectId(id)) };
     if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
       query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
     }
@@ -40,7 +54,7 @@ exports.getComments = async (req, res) => {
     const comments = await Comment.find(query)
       .sort({ _id: -1 })
       .limit(limit + 1) // fetch one extra to detect if there's a next page
-      .populate('userId', 'username avatarUrl')
+      .populate('userId', AUTHOR_FIELDS)
       .lean();
 
     // Determine pagination metadata
@@ -90,7 +104,9 @@ exports.getReplies = async (req, res) => {
       return error(res, 'Invalid comment id', 400);
     }
 
-    const query = { parentId: id, isDeleted: false };
+    const query = { parentId: id, isDeleted: false, ...visibleTo(req.user) };
+    const blocked = await privacyService.blockedIdSet(req.user?._id);
+    if (blocked.size) query.userId = { $nin: [...blocked].map((uid) => new mongoose.Types.ObjectId(uid)) };
     if (cursor && mongoose.Types.ObjectId.isValid(cursor)) {
       query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
     }
@@ -98,7 +114,7 @@ exports.getReplies = async (req, res) => {
     const replies = await Comment.find(query)
       .sort({ _id: -1 })
       .limit(limit + 1)
-      .populate('userId', 'username avatarUrl')
+      .populate('userId', AUTHOR_FIELDS)
       .lean();
 
     const hasMore = replies.length > limit;
@@ -168,6 +184,9 @@ exports.createComment = async (req, res) => {
     if (!isPublic && !isOwner && !isStaff) return error(res, 'Video not found', 404);
     if (video.status === 'deleted') return error(res, 'Video not found', 404);
     if (!video.allowComment) return error(res, 'Comments are disabled for this video', 403);
+    // Cài đặt "Ai được bình luận video của tôi" + chặn
+    const policy = await privacyService.commentPolicy(req.user, video.userId);
+    if (!policy.allowed) return error(res, policy.reason, 403);
 
     // Validate parent comment if this is a reply
     let parentComment = null;
@@ -175,7 +194,8 @@ exports.createComment = async (req, res) => {
       if (!mongoose.Types.ObjectId.isValid(parentId)) {
         return error(res, 'Invalid parentId', 400);
       }
-      parentComment = await Comment.findOne({ _id: parentId, isDeleted: false });
+      // Không trả lời được bình luận đang chờ duyệt / bị ẩn của người khác
+      parentComment = await Comment.findOne({ _id: parentId, isDeleted: false, ...visibleTo(req.user) });
       if (!parentComment) return error(res, 'Parent comment not found', 404);
       // Không cho trả lời bình luận của video khác
       if (String(parentComment.videoId) !== String(video._id)) {
@@ -183,52 +203,41 @@ exports.createComment = async (req, res) => {
       }
     }
 
-    // Create the comment using `content` (not `text`) as defined in the schema
+    // Kiểm duyệt tự động + tìm người được tag (chạy song song)
+    const [verdict, mentions] = await Promise.all([
+      moderationService.moderate(content),
+      resolveMentions(content, { excludeIds: [req.user._id] }),
+    ]);
+
     const comment = await Comment.create({
       videoId,
       userId: req.user._id,
       content,
       parentId: parentId || null,
+      mentions,
+      moderationStatus: verdict.status,
+      moderation: { score: verdict.score, label: verdict.label, source: verdict.source },
     });
 
-    // Atomically increment counters
-    await Video.findByIdAndUpdate(videoId, { $inc: { commentCount: 1 } });
-    if (parentComment) {
-      await Comment.findByIdAndUpdate(parentId, { $inc: { replyCount: 1 } });
-    }
-
-    // Build actor payload for notifications (reused below)
-    const actorPayload = {
-      actorId: req.user._id,
-      actorUsername: req.user.username,
-      actorAvatar: req.user.avatarUrl,
-      videoId: video._id,
-      videoThumbnail: video.thumbnailUrl,
-      commentId: comment._id,
-    };
-
-    // Notify the video owner (skip if the commenter IS the owner)
-    if (video.userId.toString() !== req.user._id.toString()) {
-      await notificationService.createNotification(
-        video.userId,
-        'new_comment',
-        actorPayload
-      );
-    }
-
-    // Notify the parent comment author when this is a reply (mention)
-    if (parentComment && parentComment.userId.toString() !== req.user._id.toString()) {
-      await notificationService.createNotification(
-        parentComment.userId,
-        'mention',
-        { ...actorPayload, message: content.slice(0, 100) }
-      );
+    // Chỉ bình luận được hiện công khai mới tăng bộ đếm và gửi thông báo.
+    // Bình luận chờ duyệt sẽ làm việc này khi admin duyệt (admin.controller.approveComment).
+    if (verdict.status === 'approved') {
+      await commentService.publish(comment, {
+        video,
+        actor: req.user,
+        parentComment: parentComment ? parentComment.toObject() : null,
+      });
     }
 
     // Populate author info before returning
-    await comment.populate('userId', 'username avatarUrl');
+    await comment.populate('userId', AUTHOR_FIELDS);
 
-    return success(res, comment, 201, 'Comment created');
+    const message = {
+      approved: 'Comment created',
+      pending: 'Bình luận đang chờ kiểm duyệt',
+      rejected: 'Bình luận đã bị ẩn vì có thể vi phạm tiêu chuẩn cộng đồng',
+    }[verdict.status];
+    return success(res, comment, 201, message);
   } catch (err) {
     console.error('[createComment]', err);
     return error(res, 'Failed to create comment', 500);
@@ -252,8 +261,14 @@ exports.deleteComment = async (req, res) => {
     const comment = await Comment.findOne({ _id: id, isDeleted: false });
     if (!comment) return error(res, 'Comment not found', 404);
 
-    // Only the author may delete
-    if (comment.userId.toString() !== req.user._id.toString()) {
+    // Tác giả, chủ video hoặc admin/moderator mới được xoá
+    const isAuthor = comment.userId.toString() === req.user._id.toString();
+    const isStaff = ['admin', 'moderator'].includes(req.user.role);
+    let isVideoOwner = false;
+    if (!isAuthor && !isStaff) {
+      isVideoOwner = Boolean(await Video.exists({ _id: comment.videoId, userId: req.user._id }));
+    }
+    if (!isAuthor && !isStaff && !isVideoOwner) {
       return error(res, 'Forbidden', 403);
     }
 
@@ -261,17 +276,10 @@ exports.deleteComment = async (req, res) => {
     const { modifiedCount } = await Comment.updateOne({ _id: id, isDeleted: false }, { isDeleted: true });
     if (!modifiedCount) return error(res, 'Comment not found', 404);
 
-    // Lúc tạo, cả comment gốc lẫn reply đều +1 commentCount của video,
-    // nên lúc xoá cũng luôn -1 (không cho xuống âm).
-    await Video.updateOne(
-      { _id: comment.videoId, commentCount: { $gt: 0 } },
-      { $inc: { commentCount: -1 } }
-    );
-    if (comment.parentId) {
-      await Comment.updateOne(
-        { _id: comment.parentId, replyCount: { $gt: 0 } },
-        { $inc: { replyCount: -1 } }
-      );
+    // Lúc hiện công khai, cả comment gốc lẫn reply đều +1 commentCount của video,
+    // nên lúc xoá cũng -1 (không cho xuống âm). Bình luận chờ duyệt / bị ẩn chưa từng được đếm.
+    if (commentService.isPublicStatus(comment.moderationStatus)) {
+      await commentService.applyCounters(comment, -1);
     }
 
     return success(res, null, 200, 'Comment deleted');
@@ -295,7 +303,7 @@ exports.likeComment = async (req, res) => {
       return error(res, 'Invalid comment id', 400);
     }
 
-    const comment = await Comment.findOne({ _id: id, isDeleted: false });
+    const comment = await Comment.findOne({ _id: id, isDeleted: false, ...Comment.PUBLIC_FILTER });
     if (!comment) return error(res, 'Comment not found', 404);
 
     // Check if the user already liked this comment
@@ -329,4 +337,4 @@ exports.likeComment = async (req, res) => {
     console.error('[likeComment]', err);
     return error(res, 'Failed to toggle like', 500);
   }
-};
+};

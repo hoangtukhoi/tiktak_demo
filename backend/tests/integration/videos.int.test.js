@@ -155,8 +155,47 @@ describe('POST /api/videos/:id/share', () => {
     const owner = await createUser();
     const v = await createVideo(owner.user);
     const res = await request(app).post(`/api/videos/${v._id}/share`).send({ method: 'copy_link' });
-    expect(res.body.data).toEqual({ shareCount: 1 });
+    expect(res.body.data).toEqual({ shareCount: 1, counted: true });
     expect((await ShareEvent.findOne()).method).toBe('copy_link');
+  });
+
+  test('1 tài khoản bấm chia sẻ / sao chép link nhiều lần → chỉ tính 1 lượt', async () => {
+    const owner = await createUser();
+    const fan = await createUser();
+    const v = await createVideo(owner.user);
+    const share = (method) => request(app).post(`/api/videos/${v._id}/share`).set(fan.auth).send({ method });
+    expect((await share('copy_link')).body.data).toEqual({ shareCount: 1, counted: true });
+    expect((await share('copy_link')).body.data).toEqual({ shareCount: 1, counted: false });
+    expect((await share('facebook')).body.data).toEqual({ shareCount: 1, counted: false });
+    expect((await Video.findById(v._id)).shareCount).toBe(1);
+    expect(await ShareEvent.countDocuments()).toBe(1);
+  });
+
+  test('bấm liên tục cùng lúc → vẫn chỉ 1 lượt', async () => {
+    const owner = await createUser();
+    const fan = await createUser();
+    const v = await createVideo(owner.user);
+    await Promise.all(Array.from({ length: 8 }, () => request(app).post(`/api/videos/${v._id}/share`).set(fan.auth).send({ method: 'copy_link' })));
+    expect((await Video.findById(v._id)).shareCount).toBe(1);
+  });
+
+  test('2 tài khoản khác nhau → 2 lượt; khách cùng IP chia sẻ 2 lần → 1 lượt', async () => {
+    const owner = await createUser();
+    const [a, b] = await Promise.all([createUser(), createUser()]);
+    const v = await createVideo(owner.user);
+    const url = `/api/videos/${v._id}/share`;
+    await request(app).post(url).set(a.auth).send({ method: 'zalo' });
+    await request(app).post(url).set(b.auth).send({ method: 'zalo' });
+    await request(app).post(url).send({ method: 'copy_link' });
+    await request(app).post(url).send({ method: 'copy_link' });
+    expect((await Video.findById(v._id)).shareCount).toBe(3);
+  });
+
+  test('chủ video tự chia sẻ nhiều lần → tính 1 lần', async () => {
+    const owner = await createUser();
+    const v = await createVideo(owner.user);
+    for (let i = 0; i < 3; i += 1) await request(app).post(`/api/videos/${v._id}/share`).set(owner.auth).send({ method: 'copy_link' });
+    expect((await Video.findById(v._id)).shareCount).toBe(1);
   });
 });
 

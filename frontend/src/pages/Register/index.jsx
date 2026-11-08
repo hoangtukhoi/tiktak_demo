@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import Button from '../../components/common/Button';
 import useAuth from '../../hooks/useAuth';
 import { errMsg } from '../../api/axiosClient';
-import { AuthShell, Field } from '../Login';
+import { AuthShell, Field, GoogleLogin } from '../Login';
 
 export default function Register() {
   const { signUp } = useAuth();
@@ -24,7 +24,8 @@ export default function Register() {
 
   return (
     <AuthShell title="Tạo tài khoản" subtitle="Một phút thôi. Sau đó đăng video và để AI dịch sang 10 ngôn ngữ.">
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-5" noValidate>
+      <GoogleLogin from={location.state?.from} />
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-5" noValidate>
         {/* Khớp Joi: username alphanum 3–30, email, password ≥ 6 */}
         <Field label="Tên người dùng" autoComplete="username" placeholder="lapbuilds" error={errors.username?.message}
           {...register('username', {

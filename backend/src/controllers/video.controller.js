@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const videoService = require('../services/video.service');
 const Like = require('../models/Like');
 const Video = require('../models/Video');
+const Report = require('../models/Report');
 const { success, error, paginated } = require('../utils/apiResponse');
 const notificationService = require('../services/notification.service');
 
@@ -22,6 +23,8 @@ exports.createVideo = async (req, res) => {
  */
 exports.getVideo = async (req, res) => {
   const video = await videoService.getVideoById(req.params.id, req.user?._id, req.user?.role);
+  // Cho giao diện biết người xem có được bình luận không (cài đặt quyền riêng tư của tác giả)
+  video.commentPolicy = await require('../services/privacy.service').commentPolicy(req.user, video.userId?._id || video.userId);
   success(res, video);
 };
 
@@ -143,6 +146,8 @@ exports.updateVideoUrls = async (req, res) => {
 exports.searchVideos = async (req, res) => {
   const { q, cursor, limit } = req.query;
   const result = await videoService.searchVideos(q, cursor, Math.min(Number(limit) || 12, 50));
+  result.videos = await videoService.removeBlocked(result.videos, req.user?._id);
+  await videoService.attachViewerFlags(result.videos, req.user?._id);
   paginated(res, result.videos, { nextCursor: result.nextCursor });
 };
 
@@ -164,20 +169,50 @@ exports.getTrendingHashtags = async (req, res) => {
  * A user may only report the same video once.
  */
 exports.reportVideo = async (req, res) => {
-  const { reason } = req.body;
+  const { reason, note } = req.body || {};
 
   if (!reason) return error(res, 'reason is required', 400);
+  if (!Report.REPORT_REASONS.includes(reason)) return error(res, 'Lý do báo cáo không hợp lệ', 400);
+  if (note !== undefined && note !== null && typeof note !== 'string') return error(res, 'note phải là chuỗi', 400);
+  if (typeof note === 'string' && note.trim().length > 300) return error(res, 'Mô tả tối đa 300 ký tự', 400);
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
 
-  const report = await videoService.reportVideo(req.params.id, req.user._id, reason);
+  const report = await videoService.reportVideo(req.params.id, req.user._id, reason, note);
   success(res, report, 201, 'Report submitted');
 };
 
 /**
- * POST /api/videos/:id/share  Body: { method: 'native' | 'copy_link' }
- * Ghi nhận một lượt chia sẻ (đăng nhập hay không đều được).
+ * POST /api/videos/:id/pin — ghim / bỏ ghim video lên đầu hồ sơ (chủ video, tối đa 3)
+ */
+exports.togglePin = async (req, res) => {
+  const r = await videoService.togglePin(req.params.id, req.user._id);
+  success(res, r, 200, r.pinned ? 'Video pinned' : 'Video unpinned');
+};
+
+/**
+ * POST /api/videos/:id/repost
+ * Bật/tắt đăng lại video. Trả { reposted, repostCount }.
+ */
+exports.toggleRepost = async (req, res) => {
+  const r = await videoService.toggleRepost(req.params.id, req.user);
+  success(res, r, 200, r.reposted ? 'Video reposted' : 'Repost removed');
+};
+
+/**
+ * POST /api/videos/:id/save
+ * Bật/tắt lưu video (bookmark). Trả { saved, saveCount }.
+ */
+exports.toggleSave = async (req, res) => {
+  const r = await videoService.toggleSave(req.params.id, req.user._id, req.user.role);
+  success(res, r, 200, r.saved ? 'Video saved' : 'Video unsaved');
+};
+
+/**
+ * POST /api/videos/:id/share  Body: { method: 'native' | 'copy_link' | 'facebook' ... }
+ * Ghi nhận một lượt chia sẻ (đăng nhập hay không đều được). Mỗi tài khoản chỉ tính 1 lần / video.
  */
 exports.shareVideo = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
-  const r = await videoService.recordShare(req.params.id, { userId: req.user?._id, method: req.body?.method });
-  success(res, r, 200, 'Share recorded');
+  const r = await videoService.recordShare(req.params.id, { userId: req.user?._id, method: req.body?.method, ip: req.ip });
+  success(res, r, 200, r.counted ? 'Share recorded' : 'Already shared');
 };

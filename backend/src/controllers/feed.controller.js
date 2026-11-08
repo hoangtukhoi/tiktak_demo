@@ -19,6 +19,9 @@ exports.getForYouFeed = async (req, res) => {
   const userId = req.user?._id;
 
   const result = await videoService.getForYouFeed(userId, cursor, limit);
+  result.videos = await videoService.removeBlocked(result.videos, userId);
+  // Cache feed là bản chung → gắn cờ thích/lưu của người xem sau khi đọc cache
+  await videoService.attachViewerFlags(result.videos, userId);
 
   paginated(res, result.videos, { nextCursor: result.nextCursor });
 };
@@ -38,6 +41,8 @@ exports.getFollowingFeed = async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   const result = await videoService.getFollowingFeed(req.user._id, cursor, limit);
+  result.videos = await videoService.removeBlocked(result.videos, req.user._id);
+  await videoService.attachViewerFlags(result.videos, req.user._id);
 
   paginated(res, result.videos, { nextCursor: result.nextCursor });
 };

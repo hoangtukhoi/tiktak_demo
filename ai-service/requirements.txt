@@ -19,3 +19,8 @@ edge-tts==6.1.12
 # Xử lý audio
 pydub==0.25.1
 numpy==1.26.4
+
+# Kiểm duyệt bình luận — chỉ cần nếu model của bạn là scikit-learn (.pkl/.joblib).
+# Nên ghi đúng phiên bản scikit-learn lúc train để pickle nạp được.
+# scikit-learn==1.5.2
+# joblib==1.4.2

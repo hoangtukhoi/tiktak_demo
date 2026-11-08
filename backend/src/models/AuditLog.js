@@ -28,6 +28,8 @@ const auditLogSchema = new mongoose.Schema(
         'remove_video',
         'approve_video',
         'flag_video',
+        'approve_comment',
+        'reject_comment',
       ],
       index: true,
     },

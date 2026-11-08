@@ -3,6 +3,8 @@ const User = require('../models/User');
 const Video = require('../models/Video');
 const Report = require('../models/Report');
 const AuditLog = require('../models/AuditLog');
+const Comment = require('../models/Comment');
+const commentService = require('../services/comment.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 const escapeRegex = require('../utils/escapeRegex');
 
@@ -44,6 +46,13 @@ const createAuditLog = async ({ adminId, action, targetType, targetId, details }
   }
 };
 
+/** Đóng mọi báo cáo đang mở của 1 video sau khi admin xử lý */
+const resolveReports = (videoId, adminId, resolution) =>
+  Report.updateMany(
+    { videoId, status: { $ne: 'resolved' } },
+    { $set: { status: 'resolved', resolution, resolvedBy: adminId, resolvedAt: new Date() } }
+  );
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
@@ -73,9 +82,11 @@ exports.getStats = async (req, res) => {
       Video.aggregate([
         { $group: { _id: null, total: { $sum: '$viewCount' } } },
       ]),
-      Report.countDocuments(),
+      // Báo cáo cũ (chưa có trường status) cũng tính là chưa xử lý
+      Report.countDocuments({ status: { $ne: 'resolved' } }),
       Video.countDocuments({ moderationStatus: 'flagged' }),
     ]);
+    const pendingComments = await Comment.countDocuments({ moderationStatus: 'pending', isDeleted: false });
 
     const totalViews = viewsAgg.length > 0 ? viewsAgg[0].total : 0;
 
@@ -88,6 +99,7 @@ exports.getStats = async (req, res) => {
       totalViews,
       pendingReports,
       flaggedVideos,
+      pendingComments,
     });
   } catch (err) {
     console.error('[Admin] getStats error:', err);
@@ -324,8 +336,11 @@ exports.removeVideo = async (req, res) => {
       return error(res, 'Video is already removed', 409);
     }
 
+    const previousStatus = video.moderationStatus;
     video.moderationStatus = 'removed';
+    video.reportCount = 0;
     await video.save();
+    await resolveReports(video._id, req.user._id, 'removed');
 
     await createAuditLog({
       adminId: req.user._id,
@@ -335,7 +350,7 @@ exports.removeVideo = async (req, res) => {
       details: {
         title: video.title,
         uploader: video.userId?.username,
-        previousStatus: video.moderationStatus,
+        previousStatus,
       },
     });
 
@@ -361,7 +376,8 @@ exports.approveVideo = async (req, res) => {
     const video = await Video.findById(id).populate('userId', 'username');
     if (!video) return error(res, 'Video not found', 404);
 
-    if (video.moderationStatus === 'approved') {
+    const openReports = await Report.countDocuments({ videoId: video._id, status: { $ne: 'resolved' } });
+    if (video.moderationStatus === 'approved' && !openReports) {
       return error(res, 'Video is already approved', 409);
     }
 
@@ -369,7 +385,10 @@ exports.approveVideo = async (req, res) => {
     video.moderationStatus = 'approved';
     // Clear flag metadata when explicitly approved by an admin
     video.flagReason = null;
+    // Báo cáo đã xem xét xong → đếm lại từ 0 (video bị gắn cờ lại nếu có đủ báo cáo mới)
+    video.reportCount = 0;
     await video.save();
+    await resolveReports(video._id, req.user._id, 'kept');
 
     await createAuditLog({
       adminId: req.user._id,
@@ -446,6 +465,174 @@ exports.getFlaggedVideos = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// Reports (báo cáo video)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /admin/reports?page=1&limit=20&status=open|resolved
+ * Báo cáo gom theo video: số báo cáo, thống kê lý do, vài báo cáo gần nhất.
+ * Video nhiều báo cáo đang mở nhất lên đầu.
+ */
+exports.getReports = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const status = req.query.status === 'resolved' ? 'resolved' : 'open';
+    const match = status === 'open' ? { status: { $ne: 'resolved' } } : { status: 'resolved' };
+
+    const [groups, totalAgg] = await Promise.all([
+      Report.aggregate([
+        { $match: match },
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: '$videoId',
+            count: { $sum: 1 },
+            lastReportedAt: { $first: '$createdAt' },
+            reasons: { $push: '$reason' },
+            latest: { $push: { _id: '$_id', reason: '$reason', note: '$note', reporterId: '$reporterId', createdAt: '$createdAt', resolution: '$resolution' } },
+          },
+        },
+        { $sort: { count: -1, lastReportedAt: -1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        { $project: { count: 1, lastReportedAt: 1, reasons: 1, latest: { $slice: ['$latest', 5] } } },
+      ]),
+      Report.aggregate([{ $match: match }, { $group: { _id: '$videoId' } }, { $count: 'n' }]),
+    ]);
+    const total = totalAgg[0]?.n || 0;
+
+    const videoIds = groups.map((g) => g._id);
+    const reporterIds = [...new Set(groups.flatMap((g) => g.latest.map((r) => String(r.reporterId))))];
+    const [videos, reporters] = await Promise.all([
+      Video.find({ _id: { $in: videoIds } }).populate('userId', 'username avatarUrl isVerified').lean(),
+      User.find({ _id: { $in: reporterIds } }).select('username avatarUrl').lean(),
+    ]);
+    const videoById = new Map(videos.map((v) => [String(v._id), v]));
+    const reporterById = new Map(reporters.map((u) => [String(u._id), u]));
+
+    const data = groups
+      .map((g) => {
+        const video = videoById.get(String(g._id));
+        if (!video) return null; // video đã bị xoá hẳn
+        const reasonCounts = g.reasons.reduce((acc, r) => ({ ...acc, [r]: (acc[r] || 0) + 1 }), {});
+        return {
+          ...video,
+          openReports: g.count,
+          lastReportedAt: g.lastReportedAt,
+          reasonCounts,
+          reports: g.latest.map((r) => ({ ...r, reporterId: reporterById.get(String(r.reporterId)) || null })),
+        };
+      })
+      .filter(Boolean);
+
+    return paginated(res, data, buildPagination(page, limit, total));
+  } catch (err) {
+    console.error('[Admin] getReports error:', err);
+    return error(res, 'Failed to fetch reports', 500);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Comment moderation (kiểm duyệt bình luận)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /admin/comments?status=pending|rejected|approved&page=&limit=&sort=score|new
+ * Hàng chờ kiểm duyệt bình luận. Mặc định: đang chờ, điểm vi phạm cao nhất trước.
+ */
+exports.getModerationComments = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    const status = ['pending', 'rejected', 'approved'].includes(req.query.status) ? req.query.status : 'pending';
+
+    const filter = { isDeleted: false, moderationStatus: status };
+    // Tab "đã duyệt": chỉ bình luận từng được chấm điểm / được admin xem
+    if (status === 'approved') filter['moderation.source'] = { $in: ['model', 'keyword', 'admin'] };
+    const sort = req.query.sort === 'new' || status !== 'pending' ? { _id: -1 } : { 'moderation.score': -1, _id: -1 };
+
+    const [comments, total] = await Promise.all([
+      Comment.find(filter)
+        .sort(sort)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('userId', 'username avatarUrl isVerified bannedAt')
+        .populate('videoId', 'title thumbnailUrl')
+        .populate('moderation.reviewedBy', 'username')
+        .lean(),
+      Comment.countDocuments(filter),
+    ]);
+
+    return paginated(res, comments, buildPagination(page, limit, total));
+  } catch (err) {
+    console.error('[Admin] getModerationComments error:', err);
+    return error(res, 'Failed to fetch comments', 500);
+  }
+};
+
+/** Đổi trạng thái kiểm duyệt của 1 bình luận (approve / reject) */
+const reviewComment = (target) => async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return error(res, 'Invalid comment ID', 400);
+
+    const before = await Comment.findOne({ _id: id, isDeleted: false }).lean();
+    if (!before) return error(res, 'Comment not found', 404);
+    if (before.moderationStatus === target) {
+      return error(res, target === 'approved' ? 'Comment is already approved' : 'Comment is already hidden', 409);
+    }
+
+    // Cập nhật có điều kiện: 2 admin bấm cùng lúc thì chỉ 1 người đổi được bộ đếm
+    const updated = await Comment.findOneAndUpdate(
+      { _id: id, isDeleted: false, moderationStatus: before.moderationStatus },
+      {
+        $set: {
+          moderationStatus: target,
+          'moderation.reviewedBy': req.user._id,
+          'moderation.reviewedAt': new Date(),
+          ...(before.moderation?.source ? {} : { 'moderation.source': 'admin' }),
+        },
+      },
+      { new: true }
+    );
+    if (!updated) return error(res, 'Comment was changed by someone else, reload and try again', 409);
+
+    const wasPublic = commentService.isPublicStatus(before.moderationStatus);
+    const nowPublic = commentService.isPublicStatus(target);
+    if (!wasPublic && nowPublic) {
+      // Lần đầu hiện công khai → tăng bộ đếm + gửi thông báo đã hoãn lúc đăng
+      await commentService.publish(updated);
+    } else if (wasPublic && !nowPublic) {
+      await commentService.applyCounters(updated, -1);
+    }
+
+    await createAuditLog({
+      adminId: req.user._id,
+      action: target === 'approved' ? 'approve_comment' : 'reject_comment',
+      targetType: 'comment',
+      targetId: updated._id,
+      details: {
+        previousStatus: before.moderationStatus,
+        score: before.moderation?.score ?? null,
+        content: String(before.content).slice(0, 200),
+      },
+    });
+
+    await updated.populate('userId', 'username avatarUrl isVerified');
+    return success(res, updated, 200, target === 'approved' ? 'Comment approved' : 'Comment hidden');
+  } catch (err) {
+    console.error('[Admin] reviewComment error:', err);
+    return error(res, 'Failed to update comment', 500);
+  }
+};
+
+/** POST /admin/comments/:id/approve — hiện bình luận */
+exports.approveComment = reviewComment('approved');
+/** POST /admin/comments/:id/reject — ẩn bình luận */
+exports.rejectComment = reviewComment('rejected');
+
+// ---------------------------------------------------------------------------
 // Audit logs
 // ---------------------------------------------------------------------------
 
@@ -468,7 +655,7 @@ exports.getAuditLogs = async (req, res) => {
 
     if (
       action &&
-      ['ban_user', 'unban_user', 'verify_user', 'remove_video', 'approve_video', 'flag_video'].includes(
+      ['ban_user', 'unban_user', 'verify_user', 'remove_video', 'approve_video', 'flag_video', 'approve_comment', 'reject_comment'].includes(
         action
       )
     ) {
@@ -489,4 +676,4 @@ exports.getAuditLogs = async (req, res) => {
     console.error('[Admin] getAuditLogs error:', err);
     return error(res, 'Failed to fetch audit logs', 500);
   }
-};
+};

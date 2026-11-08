@@ -6,6 +6,7 @@ const storageService = require('../services/storage.service');
 const { transcodeQueue, getProgress } = require('../jobs/queue');
 const { success, error } = require('../utils/apiResponse');
 const { MAX_VIDEO_SIZE_MB } = require('../utils/constants');
+const { resolveMentions } = require('../utils/mentions');
 
 const parseBool = (v, fallback) => (v === undefined ? fallback : v === true || v === 'true');
 
@@ -39,10 +40,15 @@ exports.uploadVideo = async (req, res) => {
 
   try {
     // 1. Tạo bản ghi Video ban đầu
+    const title = req.body.title?.trim() || req.file.originalname.replace(ext, '') || 'Video mới';
+    const description = req.body.description?.trim() || '';
+    // Người được tag (@username) — thông báo được gửi khi video xử lý xong (transcode job)
+    const mentions = await resolveMentions(`${title} ${description}`, { excludeIds: [req.user._id] });
     const video = await Video.create({
       userId: req.user._id,
-      title: req.body.title?.trim() || req.file.originalname.replace(ext, '') || 'Video mới',
-      description: req.body.description?.trim() || '',
+      title,
+      description,
+      mentions,
       hashtags: parseHashtags(req.body.hashtags),
       isPrivate: parseBool(req.body.isPrivate, false),
       allowComment: parseBool(req.body.allowComment, true),

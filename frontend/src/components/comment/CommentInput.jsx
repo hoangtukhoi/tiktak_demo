@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, X } from 'lucide-react';
 import Avatar from '../common/Avatar';
+import MentionInput from '../common/MentionInput';
 
 const QUICK = ['🔥', '😂', '😍', '👏', '🥹', '💯'];
 
@@ -9,7 +10,13 @@ export default function CommentInput({ user, onSubmit, replyTo, onCancelReply, d
   const [sending, setSending] = useState(false);
   const ref = useRef(null);
 
-  useEffect(() => { if (replyTo) ref.current?.focus(); }, [replyTo]);
+  // Trả lời → điền sẵn @tên người được trả lời (giống TikTok)
+  useEffect(() => {
+    if (!replyTo) return;
+    const tag = `@${replyTo.user.username} `;
+    setText((t) => (t.startsWith(tag) ? t : tag + t.replace(/^@[a-zA-Z0-9_]+\s/, '')));
+    ref.current?.focus();
+  }, [replyTo]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -36,13 +43,13 @@ export default function CommentInput({ user, onSubmit, replyTo, onCancelReply, d
       )}
       <div className="flex items-center gap-2">
         {user && <Avatar user={user} size={32} />}
-        <input
+        <MentionInput
           ref={ref}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={setText}
           maxLength={500}
           disabled={disabled}
-          placeholder={disabled ? 'Đăng nhập để bình luận' : 'Thêm bình luận…'}
+          placeholder={disabled ? 'Đăng nhập để bình luận' : 'Thêm bình luận… gõ @ để tag bạn bè'}
           className="input !rounded-full !py-2.5"
         />
         <button

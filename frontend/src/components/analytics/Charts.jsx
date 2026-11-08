@@ -76,7 +76,8 @@ export function StatTile({ label, metric, format = fmtNumber, hint, invert = fal
   const Icon = flat ? Minus : up ? ArrowUpRight : ArrowDownRight;
   return (
     <div className="card p-5">
-      <p className="label">{label}</p>
+      {/* text-balance: nhãn dài xuống dòng cân 2 dòng (VD "Người dùng / hoạt động") thay vì để 1 chữ lẻ */}
+      <p className="label text-balance">{label}</p>
       <p className="mt-3 font-mono text-3xl font-bold tracking-tighter sm:text-4xl">{metric ? format(metric.value) : <span className="skeleton inline-block h-9 w-24 rounded-lg" />}</p>
       <div className="mt-2 flex min-h-[20px] items-center gap-1.5 text-xs">
         {metric && change === null && metric.value > 0 && <span className="font-semibold text-paper-dim">Mới trong kỳ này</span>}

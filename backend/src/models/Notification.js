@@ -5,7 +5,7 @@ const notificationSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // người nhận
     type: {
       type: String,
-      enum: ['new_like', 'new_comment', 'new_follower', 'video_ready', 'dubbing_done', 'mention'],
+      enum: ['new_like', 'new_comment', 'new_follower', 'video_ready', 'dubbing_done', 'mention', 'repost'],
       required: true,
     },
     payload: {
@@ -16,6 +16,8 @@ const notificationSchema = new mongoose.Schema(
       videoThumbnail: String,
       commentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment' },
       message: String,
+      // Ngữ cảnh: 'comment' | 'reply' | 'video' (dùng để hiển thị câu thông báo phù hợp)
+      context: String,
     },
     isRead: { type: Boolean, default: false },
   },

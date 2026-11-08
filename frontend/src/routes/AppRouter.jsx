@@ -7,12 +7,14 @@ import BottomNav from '../components/layout/BottomNav';
 import Home from '../pages/Home';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
+import AuthCallback from '../pages/AuthCallback';
 import Profile from '../pages/Profile';
 import Upload from '../pages/Upload';
 import VideoDetail from '../pages/VideoDetail';
 import Search from '../pages/Search';
 import Admin from '../pages/Admin';
 import Analytics, { CompareVideos, VideoAnalytics } from '../pages/Analytics';
+import PrivacySettings from '../pages/Settings/Privacy';
 
 /** Khung chính: Header + Sidebar (desktop) + BottomNav (mobile), chuyển trang có hiệu ứng */
 function Shell() {
@@ -66,9 +68,10 @@ const shellRoutes = (
     <Route path="/watch/:id" element={<VideoDetail />} />
     <Route path="/search" element={<Search />} />
     <Route path="/upload" element={<PrivateRoute><Upload /></PrivateRoute>} />
-    <Route path="/analytics" element={<PrivateRoute><Analytics /></PrivateRoute>} />
-    <Route path="/analytics/video/:id" element={<PrivateRoute><VideoAnalytics /></PrivateRoute>} />
-    <Route path="/analytics/compare" element={<PrivateRoute><CompareVideos /></PrivateRoute>} />
+    <Route path="/analytics" element={<PrivateRoute notRole="admin"><Analytics /></PrivateRoute>} />
+    <Route path="/analytics/video/:id" element={<PrivateRoute notRole="admin"><VideoAnalytics /></PrivateRoute>} />
+    <Route path="/analytics/compare" element={<PrivateRoute notRole="admin"><CompareVideos /></PrivateRoute>} />
+    <Route path="/settings/privacy" element={<PrivateRoute notRole="admin"><PrivacySettings /></PrivateRoute>} />
     <Route path="/admin/videos/:id/analytics" element={<PrivateRoute role="admin"><VideoAnalytics mode="admin" /></PrivateRoute>} />
     <Route path="/admin/*" element={<PrivateRoute role="admin"><Admin /></PrivateRoute>} />
     <Route path="*" element={<NotFound />} />
@@ -80,6 +83,7 @@ export default function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/*" element={<Shell />} />
     </Routes>
   );

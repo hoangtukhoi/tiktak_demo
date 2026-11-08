@@ -1,4 +1,4 @@
-import api from './axiosClient';
+import api, { API_URL } from './axiosClient';
 
 const d = (r) => r.data.data;
 
@@ -8,6 +8,12 @@ export const register = (username, email, password) => api.post('/auth/register'
 export const logout = (refreshToken) => api.post('/auth/logout', { refreshToken });
 export const getMe = () => api.get('/auth/me').then(d);
 export const refresh = (refreshToken) => api.post('/auth/refresh', { refreshToken }).then(d);
+
+// Đăng nhập Google: trình duyệt chuyển hẳn sang trang này (không gọi bằng axios)
+export const googleLoginUrl = (from = '/') => `${API_URL}/auth/google?from=${encodeURIComponent(from)}`;
+export const getGoogleStatus = () => api.get('/auth/google/status').then(d);
+/** Đổi mã 1 lần nhận được sau khi Google chuyển về -> { user, accessToken, refreshToken } */
+export const exchangeGoogleCode = (code) => api.post('/auth/google/exchange', { code }).then(d);
 
 // /users
 export const getProfile = (username) => api.get(`/users/${encodeURIComponent(username)}`).then(d);

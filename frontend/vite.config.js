@@ -15,6 +15,8 @@ export default defineConfig({
     proxy: {
       '/api': BACKEND,
       '/socket.io': { target: BACKEND, ws: true },
+      // Link chia sẻ ngắn /s/<id> (trang có khung xem trước cho Facebook/Messenger/Zalo)
+      '^/s/[^/]+$': BACKEND,
     },
   },
 });

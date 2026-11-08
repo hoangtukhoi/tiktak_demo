@@ -2,16 +2,21 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { BadgeCheck, Heart, Music2, Volume2, VolumeX } from 'lucide-react';
+import { BadgeCheck, Flag, Heart, Music2, Pin, PinOff, Repeat2 } from 'lucide-react';
 import VideoPlayer, { VideoPlaceholder } from './VideoPlayer';
 import ActionButtons from './ActionButtons';
 import CommentList from '../comment/CommentList';
 import LanguageSelector from '../dubbing/LanguageSelector';
 import Modal from '../common/Modal';
+import ShareSheet from './ShareSheet';
+import ReportSheet from './ReportSheet';
+import VolumeControl from './VolumeControl';
+import RichText from '../common/RichText';
+import Avatar from '../common/Avatar';
 import useVideoPlayer from '../../hooks/useVideoPlayer';
 import useAuth from '../../hooks/useAuth';
 import useVideoStore from '../../store/slices/videoSlice';
-import { likeVideo, recordView, shareVideo } from '../../api/video.api';
+import { likeVideo, recordView, shareVideo, toggleRepost, toggleSaveVideo } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount, timeAgo } from '../../utils/format';
 
@@ -44,14 +49,51 @@ function Subtitles({ text, frac }) {
   );
 }
 
+/** Dòng "@a, @b và 3 người khác đã đăng lại" ở góc dưới bên trái video */
+function RepostedBy({ users, total, self }) {
+  const avatars = users.slice(0, 2);
+  // 2 người → ghi đủ 2 tên; nhiều hơn → "@a và N người khác" cho gọn trên 1 dòng
+  const names = users.slice(0, total === 2 ? 2 : 1);
+  const rest = Math.max(0, total - names.length);
+  return (
+    <motion.p
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-black/40 py-1 pl-1 pr-3 text-[13px] font-semibold backdrop-blur-md"
+    >
+      <span className="flex -space-x-1.5">
+        {avatars.length ? avatars.map((u) => <Avatar key={u._id} user={u} size={20} className="rounded-full ring-2 ring-black/40" />) : (
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-lime text-ink"><Repeat2 size={12} strokeWidth={2.6} /></span>
+        )}
+      </span>
+      <Repeat2 size={14} className="shrink-0 text-lime" />
+      <span className="truncate">
+        {self && !names.length ? 'Bạn đã đăng lại' : (
+          <>
+            {names.map((u, i) => (
+              <span key={u._id}>
+                {i > 0 && (i === names.length - 1 && !rest ? ' và ' : ', ')}
+                <Link to={`/profile/${u.username}`} onClick={(e) => e.stopPropagation()} className="hover:underline">@{u.username}</Link>
+              </span>
+            ))}
+            {rest > 0 && ` và ${rest} người khác`}
+            {self && ' (cả bạn)'} đã đăng lại
+          </>
+        )}
+      </span>
+    </motion.p>
+  );
+}
+
 function VideoCard({ video: initial, active, near = true, layout = 'feed', onCommentsInline, source = 'direct' }) {
   const [video, setVideo] = useState(initial);
   const [bursts, setBursts] = useState([]);
   const [expanded, setExpanded] = useState(false);
-  const [sheet, setSheet] = useState(null); // 'comments' | 'dub'
+  const [sheet, setSheet] = useState(null); // 'comments' | 'dub' | 'share' | 'report'
   const [dub, setDub] = useState(null); // AudioTrack đang dùng
-  const { requireAuth } = useAuth();
-  const { isMuted, toggleMute } = useVideoStore();
+  const { user: me, isAdmin, requireAuth } = useAuth();
+  const isOwn = me?._id && me._id === video.author._id;
+  const { isMuted, volume } = useVideoStore();
   const player = useVideoPlayer(video.src, active, { forceMute: !!dub?.audioUrl });
   const audioRef = useRef(null);
   const tapTimer = useRef(null);
@@ -107,11 +149,12 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
     const v = player.videoRef.current;
     if (!a || !v) return;
     a.muted = isMuted;
+    a.volume = volume;
     if (player.playing && active) {
       if (Math.abs(a.currentTime - v.currentTime) > 0.35) a.currentTime = v.currentTime;
       a.play().catch(() => {});
     } else a.pause();
-  }, [player.playing, player.time, active, isMuted, dub]);
+  }, [player.playing, player.time, active, isMuted, volume, dub]);
 
   const like = async (fromDoubleTap = false) => {
     if (!requireAuth('Đăng nhập để thả tim')) return;
@@ -127,19 +170,58 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
     }
   };
 
-  const share = async () => {
-    const url = `${location.origin}/watch/${video._id}`;
+  // Lưu video (bookmark). Admin không có trang hồ sơ / mục "Đã lưu" nên không hiện nút.
+  const save = async () => {
+    if (!requireAuth('Đăng nhập để lưu video')) return;
+    const prev = video;
+    const saved = !video.isSaved;
+    setVideo((v) => ({ ...v, isSaved: saved, saveCount: Math.max(0, v.saveCount + (saved ? 1 : -1)) }));
     try {
-      let method = 'native';
-      if (navigator.share) await navigator.share({ title: video.title, url });
-      else { await navigator.clipboard.writeText(url); method = 'copy_link'; toast('Đã sao chép liên kết', { icon: '🔗' }); }
-      setVideo((v) => ({ ...v, shareCount: v.shareCount + 1 }));
-      shareVideo(video._id, method).catch(() => {}); // ghi nhận cho trang phân tích
-    } catch { /* người dùng huỷ */ }
+      const r = await toggleSaveVideo(video._id);
+      setVideo((v) => ({ ...v, isSaved: r.saved, saveCount: r.saveCount }));
+      toast(r.saved ? 'Đã lưu — xem lại trong mục "Đã lưu" ở hồ sơ' : 'Đã bỏ lưu', { icon: r.saved ? '🔖' : undefined });
+    } catch (e) {
+      setVideo(prev);
+      toast.error(errMsg(e));
+    }
+  };
+
+  // Đăng lại (từ bảng Chia sẻ). Không đăng lại được video của mình; admin không dùng.
+  const repost = async () => {
+    if (!requireAuth('Đăng nhập để đăng lại video')) return;
+    const prev = video;
+    const next = !video.isReposted;
+    setVideo((v) => ({ ...v, isReposted: next, repostCount: Math.max(0, v.repostCount + (next ? 1 : -1)) }));
+    setSheet(null);
+    try {
+      const r = await toggleRepost(video._id);
+      setVideo((v) => ({ ...v, isReposted: r.reposted, repostCount: r.repostCount }));
+      toast(r.reposted ? 'Đã đăng lại — người theo dõi bạn sẽ thấy video này' : 'Đã huỷ đăng lại', { icon: r.reposted ? '🔁' : undefined });
+    } catch (e) {
+      setVideo(prev);
+      toast.error(errMsg(e));
+    }
+  };
+  const canRepost = !isOwn && !isAdmin && (video.canRepost || video.isReposted);
+
+  const openReport = () => {
+    if (!requireAuth('Đăng nhập để báo cáo video')) return;
+    setSheet('report');
+  };
+  const canReport = !isOwn && !isAdmin;
+
+  const share = () => setSheet('share');
+  // Gọi sau mỗi lần chia sẻ thành công từ bảng chia sẻ (Messenger, Facebook, sao chép link...).
+  // Mỗi tài khoản chỉ được tính 1 lượt / video → không tự cộng ở giao diện, lấy đúng số từ server
+  // (trước đây cộng trước rồi bị ghi đè làm số nhảy lên xuống khi bấm sao chép link liên tục).
+  const onShared = (method) => {
+    shareVideo(video._id, method)
+      .then((r) => typeof r?.shareCount === 'number' && setVideo((v) => ({ ...v, shareCount: r.shareCount })))
+      .catch(() => {});
   };
 
   const onTap = (e) => {
-    if (e.target.closest('a,button')) return;
+    if (e.target.closest('a,button,[data-no-tap]')) return;
     const r = e.currentTarget.getBoundingClientRect();
     const pos = { x: e.clientX - r.left, y: e.clientY - r.top };
     if (tapTimer.current) {
@@ -172,9 +254,15 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 
         {/* góc trên */}
         <div className={`absolute right-3 z-10 ${layout === 'feed' ? 'top-14 sm:top-16' : 'top-3'}`}>
-          <button onClick={toggleMute} className="grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-md transition hover:bg-black/55" aria-label={isMuted ? 'Bật tiếng' : 'Tắt tiếng'}>
-            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <VolumeControl />
+            {canReport && (
+              // Trên điện thoại nút này bị cột hành động che → báo cáo nằm trong bảng Chia sẻ
+              <button onClick={openReport} className="hidden h-9 w-9 place-items-center rounded-full sm:grid bg-black/35 text-white backdrop-blur-md transition hover:bg-black/55 hover:text-coral" aria-label="Báo cáo video" title="Báo cáo video">
+                <Flag size={16} />
+              </button>
+            )}
+          </div>
         </div>
 
         {bursts.map((b) => <HeartBurst key={b.id} x={b.x} y={b.y} />)}
@@ -191,13 +279,17 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 
         {/* thông tin */}
         <div className="absolute bottom-5 left-4 right-20 z-10 text-white sm:right-4">
+          {/* Người mình theo dõi đã đăng lại video này */}
+          {(video.repostedBy.length > 0 || video.isReposted) && (
+            <RepostedBy users={video.repostedBy} total={video.repostedByCount} self={video.isReposted} />
+          )}
           <Link to={`/profile/${video.author.username}`} className="inline-flex items-center gap-1.5 text-[17px] font-extrabold hover:underline">
             @{video.author.username}
             {video.author.isVerified && <BadgeCheck size={16} className="text-lime" />}
             <span className="ml-1 font-mono text-[11px] font-medium text-white/60">· {timeAgo(video.createdAt)} · {formatCount(video.viewCount)} lượt xem</span>
           </Link>
           <p className={`mt-1.5 text-[15px] leading-snug ${expanded ? '' : 'line-clamp-2'}`} onClick={() => setExpanded((x) => !x)}>
-            {caption}
+            <RichText text={caption} mentions={video.mentions} linkClassName="font-bold text-white underline-offset-2 hover:text-lime hover:underline" />
           </p>
           {video.hashtags.length > 0 && (
             <p className="mt-1 flex flex-wrap gap-x-2.5 font-mono text-[12px] font-bold text-white/85">
@@ -221,21 +313,24 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 
         {/* thanh hành động trên mobile */}
         <div className="absolute bottom-24 right-2 z-10 sm:hidden">
-          <ActionButtons video={video} onLike={() => like()} onComment={openComments} onDub={() => setSheet('dub')} onShare={share} dubLang={dub?.targetLang} />
+          <ActionButtons video={video} onLike={() => like()} onComment={openComments} onSave={isAdmin ? undefined : save} onDub={() => setSheet('dub')} onShare={share} dubLang={dub?.targetLang} />
         </div>
       </div>
 
       {/* thanh hành động desktop, đặt cạnh khung video */}
       <div className="hidden self-end pb-6 sm:block">
-        <ActionButtons video={video} onLike={() => like()} onComment={openComments} onDub={() => setSheet('dub')} onShare={share} dubLang={dub?.targetLang} />
+        <ActionButtons video={video} onLike={() => like()} onComment={openComments} onSave={isAdmin ? undefined : save} onDub={() => setSheet('dub')} onShare={share} dubLang={dub?.targetLang} />
       </div>
 
       {!onCommentsInline && (
         <Modal open={sheet === 'comments'} onClose={() => setSheet(null)} title={`${formatCount(video.commentCount)} bình luận`}>
-          <CommentList videoId={video._id} allowComment={video.allowComment !== false}
+          <CommentList videoId={video._id} videoOwnerId={video.author._id} allowComment={video.allowComment !== false} policy={video.commentPolicy}
             onCountChange={(d) => setVideo((v) => ({ ...v, commentCount: Math.max(0, v.commentCount + d) }))} />
         </Modal>
       )}
+      <ShareSheet video={video} open={sheet === 'share'} onClose={() => setSheet(null)} onShared={onShared}
+        onReport={canReport ? () => setSheet('report') : undefined} onRepost={canRepost ? repost : undefined} />
+      {canReport && <ReportSheet video={video} open={sheet === 'report'} onClose={() => setSheet(null)} />}
       <LanguageSelector video={video} open={sheet === 'dub'} onClose={() => setSheet(null)} current={dub?.targetLang} onSelect={setDub} requireAuth={requireAuth} />
     </article>
   );
@@ -244,7 +339,7 @@ function VideoCard({ video: initial, active, near = true, layout = 'feed', onCom
 export default memo(VideoCard);
 
 /** Ô video dạng lưới (Profile, Search): rê chuột để xem trước, `index` dùng cho hiệu ứng xuất hiện so le */
-export function VideoTile({ video, index = 0, onDelete, from }) {
+export function VideoTile({ video, index = 0, onDelete, onPin, from }) {
   const [hover, setHover] = useState(false);
   const navigate = useNavigate();
   const ready = !video.status || video.status === 'ready';
@@ -266,6 +361,11 @@ export function VideoTile({ video, index = 0, onDelete, from }) {
         <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/75 to-transparent" />
         <span className="absolute bottom-2.5 left-3 font-mono text-xs font-bold text-white">▶ {formatCount(video.viewCount)}</span>
         {!ready && <span className="absolute left-2.5 top-2.5 rounded-full bg-lime px-2 py-0.5 font-mono text-[10px] font-bold text-ink">ĐANG XỬ LÝ</span>}
+        {ready && video.pinnedAt && (
+          <span className={`absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-coral px-2 py-0.5 text-[11px] font-bold text-white transition ${onDelete ? 'group-hover:opacity-0' : ''}`}>
+            <Pin size={11} fill="currentColor" /> Đã ghim
+          </span>
+        )}
         <p className="absolute inset-x-3 bottom-8 line-clamp-2 text-sm font-semibold text-white opacity-0 transition duration-300 group-hover:opacity-100">{video.title}</p>
         {onDelete && ready && (
           <button
@@ -275,13 +375,27 @@ export function VideoTile({ video, index = 0, onDelete, from }) {
             Phân tích
           </button>
         )}
-        {onDelete && (
-          <button
-            onClick={(e) => { e.preventDefault(); onDelete(video); }}
-            className="absolute right-2 top-2 rounded-full bg-black/50 px-2.5 py-1 text-xs font-bold text-white opacity-0 backdrop-blur transition hover:bg-coral group-hover:opacity-100"
-          >
-            Xoá
-          </button>
+        {(onDelete || onPin) && (
+          <span className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+            {onPin && ready && (
+              <button
+                onClick={(e) => { e.preventDefault(); onPin(video); }}
+                className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white backdrop-blur transition hover:bg-lime hover:text-ink"
+                aria-label={video.pinnedAt ? 'Bỏ ghim video' : 'Ghim video lên đầu hồ sơ'}
+                title={video.pinnedAt ? 'Bỏ ghim' : 'Ghim lên đầu hồ sơ'}
+              >
+                {video.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={(e) => { e.preventDefault(); onDelete(video); }}
+                className="rounded-full bg-black/50 px-2.5 py-1 text-xs font-bold text-white backdrop-blur transition hover:bg-coral"
+              >
+                Xoá
+              </button>
+            )}
+          </span>
         )}
       </Link>
     </motion.div>

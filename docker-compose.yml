@@ -96,10 +96,16 @@ services:
       AI_INTERNAL_KEY: ${INTERNAL_KEY:-internal_secret_key}
       AI_WHISPER_MODEL: ${AI_WHISPER_MODEL:-small}
       AI_MODEL_CACHE_DIR: /models
+      # Model phân loại bình luận: chép vào ai-service/moderation_model/ (xem ai-service/README.md)
+      AI_MODERATION_MODEL_PATH: ${AI_MODERATION_MODEL_PATH:-}
+      AI_MODERATION_MODEL_TYPE: ${AI_MODERATION_MODEL_TYPE:-auto}
+      AI_MODERATION_CLEAN_LABELS: ${AI_MODERATION_CLEAN_LABELS:-clean,normal,non-toxic,ok,label_0,0}
+      AI_MODERATION_LABEL_NAMES: ${AI_MODERATION_LABEL_NAMES:-}
     ports:
       - '8002:8002'
     volumes:
       - ai_models:/models
+      - ./ai-service/moderation_model:/moderation_model:ro
 
 volumes:
   mongo_data:

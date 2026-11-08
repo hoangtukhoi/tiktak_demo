@@ -12,8 +12,9 @@ export default function Sidebar() {
     ['/following', Users, 'Đang theo dõi'],
     ['/search', Compass, 'Khám phá'],
     ['/upload', Plus, 'Tải lên'],
-    isAuthenticated && [`/profile/${user?.username}`, User, 'Hồ sơ'],
-    isAuthenticated && ['/analytics', BarChart3, 'Phân tích'],
+    // Admin không có hồ sơ / phân tích cá nhân như người dùng thường → chỉ có trang Quản trị
+    isAuthenticated && !isAdmin && [`/profile/${user?.username}`, User, 'Hồ sơ'],
+    isAuthenticated && !isAdmin && ['/analytics', BarChart3, 'Phân tích'],
     isAdmin && ['/admin', Shield, 'Quản trị'],
   ].filter(Boolean);
 

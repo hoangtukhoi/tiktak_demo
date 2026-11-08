@@ -1,15 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { Compass, Home, Plus, User, Users } from 'lucide-react';
+import { Compass, Home, Plus, Shield, User, Users } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 
 export default function BottomNav() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
   const items = [
     ['/', Home, 'Trang chủ'],
     ['/search', Compass, 'Khám phá'],
     ['/upload', Plus, ''],
     ['/following', Users, 'Theo dõi'],
-    [isAuthenticated ? `/profile/${user?.username}` : '/login', User, 'Tôi'],
+    isAdmin ? ['/admin', Shield, 'Quản trị'] : [isAuthenticated ? `/profile/${user?.username}` : '/login', User, 'Tôi'],
   ];
   return (
     <nav className="z-40 flex h-[58px] shrink-0 items-center justify-around border-t border-ink-600 bg-ink/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" style={{ boxSizing: 'content-box' }}>

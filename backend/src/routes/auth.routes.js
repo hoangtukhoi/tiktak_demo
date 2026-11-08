@@ -10,4 +10,10 @@ router.post('/login', authLimiter, validate(loginSchema), authController.login);
 router.post('/refresh', authController.refresh);
 router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.me);
-module.exports = router;
+
+// Đăng nhập Google
+router.get('/google/status', authController.googleStatus);
+router.get('/google', authLimiter, authController.googleStart);
+router.get('/google/callback', authLimiter, authController.googleCallback);
+router.post('/google/exchange', authLimiter, authController.googleExchange);
+module.exports = router;

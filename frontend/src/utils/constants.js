@@ -18,3 +18,18 @@ export const DUB_STEPS = {
   done: { label: 'Hoàn tất', pct: 100 },
   failed: { label: 'Thất bại', pct: 100 },
 };
+
+// Lý do báo cáo video — khớp backend models/Report.js (REPORT_REASONS)
+export const REPORT_REASONS = [
+  { value: 'spam', label: 'Spam hoặc lừa đảo', hint: 'Quảng cáo rác, lừa tiền, câu view' },
+  { value: 'sexual', label: 'Nội dung khiêu dâm', hint: 'Khoả thân, gợi dục' },
+  { value: 'violence', label: 'Bạo lực', hint: 'Đánh nhau, máu me, đe doạ' },
+  { value: 'harassment', label: 'Quấy rối hoặc bắt nạt', hint: 'Xúc phạm, nhắm vào một người' },
+  { value: 'hate', label: 'Ngôn từ thù ghét', hint: 'Phân biệt vùng miền, sắc tộc, giới tính' },
+  { value: 'dangerous', label: 'Hành vi nguy hiểm', hint: 'Thử thách nguy hiểm, tự gây hại' },
+  { value: 'misinformation', label: 'Thông tin sai lệch', hint: 'Tin giả, sai sự thật' },
+  { value: 'child_safety', label: 'An toàn trẻ em', hint: 'Nội dung gây hại cho trẻ vị thành niên' },
+  { value: 'copyright', label: 'Vi phạm bản quyền', hint: 'Dùng lại video, nhạc của người khác' },
+  { value: 'other', label: 'Lý do khác', hint: 'Mô tả thêm ở bên dưới' },
+];
+export const REPORT_REASON_LABEL = Object.fromEntries(REPORT_REASONS.map((r) => [r.value, r.label]));

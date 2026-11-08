@@ -14,6 +14,8 @@ const videoService = require('../services/video.service');
 const notificationService = require('../services/notification.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 const escapeRegex = require('../utils/escapeRegex');
+const Block = require('../models/Block');
+const privacyService = require('../services/privacy.service');
 const sharp = require('sharp');
 const storageService = require('../services/storage.service');
 const { updateProfileSchema, normalizeLinks } = require('../validators/user.validator');
@@ -52,6 +54,13 @@ exports.getProfile = async (req, res) => {
     const isOwner = req.user && String(req.user._id) === String(user._id);
     if (!isOwner) delete user.email;
 
+    // Quyền riêng tư: bị người này chặn → như không tồn tại; mình chặn họ → giao diện hiện "Bỏ chặn"
+    const rel = await privacyService.relation(req.user, user._id);
+    if (rel.blockedMe && !privacyService.isStaff(req.user)) return error(res, 'User not found', 404);
+    const access = privacyService.profileAccess(user, rel, req.user);
+    const privacy = isOwner ? privacyService.settingsOf(user) : undefined;
+    delete user.privacy;
+
     // Ghi lượt xem hồ sơ (không tính chủ tài khoản; mỗi người xem/IP tối đa 1 lần / 30 phút)
     if (!isOwner) {
       const who = req.user ? `u:${req.user._id}` : `ip:${req.ip}`;
@@ -83,6 +92,11 @@ exports.getProfile = async (req, res) => {
       totalLikes,
       videosCount: user.videoCount,
       isFollowing,
+      followsYou: rel.followedBy,
+      isFriend: rel.friends,
+      isBlocked: rel.blockedByMe,
+      access, // { followers, following, liked, reposts }: người xem được mở các mục này không
+      ...(privacy && { privacy }),
     });
   } catch (err) {
     console.error('[getProfile]', err);
@@ -216,6 +230,9 @@ exports.getUserVideos = async (req, res) => {
     // Resolve username → _id so videoService can query by userId
     const user = await findUserByParam(username, '_id').lean();
     if (!user) return error(res, 'User not found', 404);
+    if (!privacyService.isStaff(req.user) && (await privacyService.isBlockedBetween(req.user?._id, user._id))) {
+      return paginated(res, [], { nextCursor: null, hasMore: false, limit });
+    }
 
     if (cursor && !/^\d{1,6}$/.test(cursor) && !mongoose.Types.ObjectId.isValid(cursor)) {
       return error(res, 'Invalid cursor', 400);
@@ -229,6 +246,7 @@ exports.getUserVideos = async (req, res) => {
       limit,
       req.user?._id
     );
+    await videoService.attachViewerFlags(videos, req.user?._id);
 
     return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor), limit });
   } catch (err) {
@@ -242,6 +260,258 @@ exports.getUserVideos = async (req, res) => {
  * Case-insensitive regex search on username, returns at most 10 results.
  * Returns only non-sensitive fields.
  */
+/**
+ * GET /users/me/saved?cursor=&limit=
+ * Video đã lưu của chính mình (người khác không xem được).
+ */
+exports.getSavedVideos = async (req, res) => {
+  const cursor = req.query.cursor ?? req.query.page;
+  if (cursor && !/^\d{1,6}$/.test(String(cursor))) return error(res, 'Invalid cursor', 400);
+  const { videos, nextCursor } = await videoService.getSavedVideos(req.user._id, cursor, req.query.limit);
+  return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
+};
+
+const parseCursor = (req, res) => {
+  const cursor = req.query.cursor ?? req.query.page;
+  if (cursor && !/^\d{1,6}$/.test(String(cursor))) {
+    error(res, 'Invalid cursor', 400);
+    return { bad: true };
+  }
+  return { cursor };
+};
+
+/**
+ * GET /users/me/liked?cursor=&limit=
+ * Video mình đã thả tim (chỉ chủ tài khoản xem được).
+ */
+exports.getLikedVideos = async (req, res) => {
+  const { cursor, bad } = parseCursor(req, res);
+  if (bad) return undefined;
+  const { videos, nextCursor } = await videoService.getLikedVideos(req.user._id, cursor, req.query.limit);
+  return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
+};
+
+/**
+ * GET /users/:username/reposts?cursor=&limit=
+ * Video người này đã đăng lại (công khai).
+ */
+exports.getUserReposts = async (req, res) => {
+  const { cursor, bad } = parseCursor(req, res);
+  if (bad) return undefined;
+  const user = await findUserByParam(req.params.username, '_id privacy').lean();
+  if (!user) return error(res, 'User not found', 404);
+  const denied = await denyIfHidden(req, res, user, 'reposts');
+  if (denied) return denied;
+  const { videos, nextCursor } = await videoService.getUserReposts(user._id, cursor, req.query.limit, req.user?._id);
+  return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
+};
+
+/**
+ * Chặn xem mục bị ẩn theo cài đặt quyền riêng tư.
+ * Bị chủ tài khoản chặn → 404; mục ẩn → 403 code PRIVATE (giao diện hiện "🔒 đã ẩn").
+ */
+async function denyIfHidden(req, res, user, key) {
+  const rel = await privacyService.relation(req.user, user._id);
+  if (rel.blockedMe && !privacyService.isStaff(req.user)) return error(res, 'User not found', 404);
+  if (!privacyService.profileAccess(user, rel, req.user)[key]) {
+    return res.status(403).json({ success: false, code: 'PRIVATE', message: 'Người dùng đã ẩn mục này' });
+  }
+  return null;
+}
+
+/**
+ * GET /users/:username/liked — video người này đã thả tim (theo cài đặt "Ai xem được video đã thích")
+ */
+exports.getUserLiked = async (req, res) => {
+  const { cursor, bad } = parseCursor(req, res);
+  if (bad) return undefined;
+  const user = await findUserByParam(req.params.username, '_id privacy').lean();
+  if (!user) return error(res, 'User not found', 404);
+  const denied = await denyIfHidden(req, res, user, 'liked');
+  if (denied) return denied;
+  const { videos, nextCursor } = await videoService.getLikedVideos(user._id, cursor, req.query.limit, req.user?._id);
+  return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
+};
+
+const LIST_FIELDS = 'username displayName avatarUrl isVerified followerCount bannedAt';
+
+/**
+ * GET /users/:username/followers | /following ?cursor=&limit=&q=
+ * Danh sách người theo dõi / đang theo dõi (mới nhất trước), có tìm theo tên.
+ * Mỗi người kèm isFollowing (mình có theo dõi họ không) và followsYou (họ có theo dõi mình không).
+ */
+const listFollows = (kind) => async (req, res) => {
+  const { cursor, bad } = parseCursor(req, res);
+  if (bad) return undefined;
+  const user = await findUserByParam(req.params.username, '_id privacy').lean();
+  if (!user) return error(res, 'User not found', 404);
+  const denied = await denyIfHidden(req, res, user, kind);
+  if (denied) return denied;
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const page = cursor ? parseInt(cursor, 10) : 0;
+  const [mine, theirs] = kind === 'followers' ? ['followingId', 'followerId'] : ['followerId', 'followingId'];
+  const filter = { [mine]: user._id };
+
+  // Ẩn người đã chặn nhau với người xem
+  const hidden = await privacyService.blockedIdSet(req.user?._id);
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().replace(/^@/, '').slice(0, 30) : '';
+  if (q) {
+    const re = new RegExp(escapeRegex(q), 'i');
+    const matched = await User.find({ $or: [{ username: re }, { displayName: re }] }).select('_id').limit(2000).lean();
+    filter[theirs] = { $in: matched.map((u) => u._id).filter((id) => !hidden.has(String(id))) };
+  } else if (hidden.size) {
+    filter[theirs] = { $nin: [...hidden].map((id) => new mongoose.Types.ObjectId(id)) };
+  }
+
+  const rows = await Follow.find(filter)
+    .sort({ _id: -1 })
+    .skip(page * limit)
+    .limit(limit + 1)
+    .populate(theirs, LIST_FIELDS)
+    .lean();
+  const hasMore = rows.length > limit;
+  const people = rows.slice(0, limit).map((r) => r[theirs]).filter((u) => u && !u.bannedAt);
+
+  // Quan hệ của người xem với từng người trong danh sách
+  let iFollow = new Set();
+  let followMe = new Set();
+  if (req.user && people.length) {
+    const ids = people.map((u) => u._id);
+    const [a, b] = await Promise.all([
+      Follow.find({ followerId: req.user._id, followingId: { $in: ids } }).select('followingId').lean(),
+      Follow.find({ followingId: req.user._id, followerId: { $in: ids } }).select('followerId').lean(),
+    ]);
+    iFollow = new Set(a.map((f) => String(f.followingId)));
+    followMe = new Set(b.map((f) => String(f.followerId)));
+  }
+  const data = people.map(({ bannedAt, ...u }) => ({
+    ...u,
+    isMe: Boolean(req.user && String(u._id) === String(req.user._id)),
+    isFollowing: iFollow.has(String(u._id)),
+    followsYou: followMe.has(String(u._id)),
+  }));
+  return paginated(res, data, { nextCursor: hasMore ? String(page + 1) : null, hasMore });
+};
+exports.getFollowers = listFollows('followers');
+exports.getFollowing = listFollows('following');
+
+/** Xoá 1 bản ghi theo dõi + cập nhật bộ đếm 2 phía (trả true nếu thực sự xoá được) */
+async function removeFollow(followerId, followingId) {
+  const { deletedCount } = await Follow.deleteOne({ followerId, followingId });
+  if (!deletedCount) return false;
+  FollowEvent.create({ followerId, followingId, action: 'unfollow' }).catch(() => {});
+  await User.updateOne({ _id: followerId }, { $inc: { followingCount: -1 } });
+  await User.updateOne({ _id: followingId }, { $inc: { followerCount: -1 } });
+  return true;
+}
+
+/**
+ * DELETE /users/me/followers/:userId — xoá 1 người khỏi danh sách người theo dõi mình
+ * (họ không được báo; có thể theo dõi lại sau).
+ */
+exports.removeFollower = async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.userId)) return error(res, 'Invalid user id', 400);
+  const removed = await removeFollow(req.params.userId, req.user._id);
+  if (!removed) return error(res, 'Người này không theo dõi bạn', 404);
+  return success(res, { removed: true }, 200, 'Follower removed');
+};
+
+/**
+ * POST /users/:username/block — chặn: tự bỏ theo dõi 2 chiều, 2 bên không thấy / tương tác được với nhau.
+ */
+exports.blockUser = async (req, res) => {
+  const target = await User.findOne({ username: req.params.username }).collation({ locale: 'en', strength: 2 }).select('_id username role').lean();
+  if (!target) return error(res, 'User not found', 404);
+  if (String(target._id) === String(req.user._id)) return error(res, 'Bạn không thể chặn chính mình', 400);
+  try {
+    await Block.create({ blockerId: req.user._id, blockedId: target._id });
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+  }
+  await Promise.all([removeFollow(req.user._id, target._id), removeFollow(target._id, req.user._id)]);
+  return success(res, { blocked: true }, 200, `Đã chặn @${target.username}`);
+};
+
+/** DELETE /users/:username/block — bỏ chặn (không tự theo dõi lại) */
+exports.unblockUser = async (req, res) => {
+  const target = await User.findOne({ username: req.params.username }).collation({ locale: 'en', strength: 2 }).select('_id username').lean();
+  if (!target) return error(res, 'User not found', 404);
+  await Block.deleteOne({ blockerId: req.user._id, blockedId: target._id });
+  return success(res, { blocked: false }, 200, `Đã bỏ chặn @${target.username}`);
+};
+
+/** GET /users/me/blocked — danh sách tài khoản mình đã chặn */
+exports.getBlockedUsers = async (req, res) => {
+  const rows = await Block.find({ blockerId: req.user._id })
+    .sort({ _id: -1 })
+    .limit(500)
+    .populate('blockedId', 'username displayName avatarUrl isVerified')
+    .lean();
+  return success(res, rows.filter((r) => r.blockedId).map((r) => ({ ...r.blockedId, blockedAt: r.createdAt })));
+};
+
+/** GET /users/me/privacy */
+exports.getPrivacy = async (req, res) => success(res, privacyService.settingsOf(req.user.toObject?.() ?? req.user));
+
+/** PATCH /users/me/privacy — cập nhật 1 hoặc nhiều cài đặt */
+exports.updatePrivacy = async (req, res) => {
+  const { value, error: msg } = privacyService.validate(req.body);
+  if (msg) return error(res, msg, 400);
+  const $set = Object.fromEntries(Object.entries(value).map(([k, v]) => [`privacy.${k}`, v]));
+  const user = await User.findByIdAndUpdate(req.user._id, { $set }, { new: true }).select('privacy').lean();
+  return success(res, privacyService.settingsOf(user), 200, 'Đã lưu cài đặt quyền riêng tư');
+};
+
+/**
+ * GET /users/mention-suggest?q=
+ * Gợi ý người để tag khi gõ "@": ưu tiên username bắt đầu bằng q, rồi người mình đang theo dõi.
+ * q rỗng → trả về những người mình đang theo dõi (nếu đã đăng nhập).
+ */
+exports.mentionSuggest = async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().replace(/^@/, '').slice(0, 30) : '';
+  if (q && !/^[a-zA-Z0-9_]+$/.test(q)) return success(res, []);
+  const fields = 'username displayName avatarUrl isVerified followerCount privacy.mentionPermission';
+
+  let followingIds = [];
+  if (req.user) {
+    const follows = await Follow.find({ followerId: req.user._id }).select('followingId').limit(500).lean();
+    followingIds = follows.map((f) => f.followingId);
+  }
+
+  // Không gợi ý: chính mình, người đã chặn nhau, người tắt "hiện trong gợi ý", người không cho tag
+  const hidden = await privacyService.blockedIdSet(req.user?._id);
+  const notIds = [...(req.user ? [req.user._id] : []), ...[...hidden].map((id) => new mongoose.Types.ObjectId(id))];
+  const base = {
+    bannedAt: null,
+    'privacy.discoverable': { $ne: false },
+    'privacy.mentionPermission': { $ne: 'no_one' },
+    ...(notIds.length && { _id: { $nin: notIds } }),
+  };
+  let users;
+  if (!q) {
+    if (!followingIds.length) return success(res, []);
+    users = await User.find({ ...base, _id: { $in: followingIds, $nin: notIds } })
+      .select(fields).sort({ followerCount: -1 }).limit(30).lean();
+  } else {
+    const prefix = new RegExp(`^${escapeRegex(q)}`, 'i');
+    users = await User.find({ ...base, $or: [{ username: prefix }, { displayName: prefix }] })
+      .select(fields).sort({ followerCount: -1 }).limit(30).lean();
+  }
+  const following = new Set(followingIds.map(String));
+  // Người chỉ cho "người họ theo dõi" tag → chỉ gợi ý khi họ đang theo dõi mình
+  const restricted = users.filter((u) => u.privacy?.mentionPermission === 'following');
+  if (restricted.length) {
+    const ok = req.user
+      ? new Set((await Follow.find({ followerId: { $in: restricted.map((u) => u._id) }, followingId: req.user._id }).select('followerId').lean()).map((f) => String(f.followerId)))
+      : new Set();
+    users = users.filter((u) => u.privacy?.mentionPermission !== 'following' || ok.has(String(u._id)));
+  }
+  users.forEach((u) => delete u.privacy);
+  users.sort((a, b) => Number(following.has(String(b._id))) - Number(following.has(String(a._id))));
+  return success(res, users.slice(0, 8));
+};
+
 exports.searchUsers = async (req, res) => {
   try {
     const { q } = req.query;
@@ -249,10 +519,18 @@ exports.searchUsers = async (req, res) => {
       return error(res, 'Query parameter q is required', 400);
     }
 
+    const hidden = await privacyService.blockedIdSet(req.user?._id);
     const users = await User.find(
-      { username: { $regex: escapeRegex(q.trim().slice(0, 50)), $options: 'i' }, bannedAt: null },
+      {
+        username: { $regex: escapeRegex(q.trim().slice(0, 50)), $options: 'i' },
+        bannedAt: null,
+        // Người tắt "Hiện tôi trong tìm kiếm" không xuất hiện (trừ khi gõ đúng tên)
+        $or: [{ 'privacy.discoverable': { $ne: false } }, { username: q.trim() }],
+        ...(hidden.size && { _id: { $nin: [...hidden].map((id) => new mongoose.Types.ObjectId(id)) } }),
+      },
       'username displayName avatarUrl bio followerCount videoCount isVerified'
     )
+      .collation({ locale: 'en', strength: 2 })
       .limit(10)
       .lean();
 
@@ -307,6 +585,9 @@ exports.followUser = async (req, res) => {
     }
 
     // --- FOLLOW ---
+    if (await privacyService.isBlockedBetween(req.user._id, targetUser._id)) {
+      return error(res, 'Không thể theo dõi tài khoản này', 403);
+    }
     await Follow.create({
       followerId: req.user._id,
       followingId: targetUser._id,
@@ -332,4 +613,4 @@ exports.followUser = async (req, res) => {
     console.error('[followUser]', err);
     return error(res, 'Follow action failed', 500);
   }
-};
+};

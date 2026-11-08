@@ -18,8 +18,16 @@ async function main() {
   if (typeof storageService.ensureBuckets === 'function') await storageService.ensureBuckets().catch(console.error);
 
   const server = http.createServer(app);
-  const socketOrigins = (process.env.FRONTEND_URL || '').split(',').map((o) => o.trim()).filter(Boolean);
-  const io = new Server(server, { cors: { origin: socketOrigins, credentials: true } });
+  // Cùng quy tắc CORS với REST API (app.js): FRONTEND_URL + mọi localhost khi dev
+  const socketOrigins = (process.env.FRONTEND_URL || '').split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
+  const isDevLocalhost = (origin) =>
+    process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const io = new Server(server, {
+    cors: {
+      origin: (origin, cb) => cb(null, !origin || socketOrigins.includes(origin) || isDevLocalhost(origin)),
+      credentials: true,
+    },
+  });
   initSocket(io);
 
   // Mặc định chạy worker chung process cho tiện dev.
@@ -33,4 +41,4 @@ async function main() {
     console.log(` Server running on http://localhost:${PORT}`);
   });
 }
-main().catch(err => { console.error(err); process.exit(1); });
+main().catch(err => { console.error(err); process.exit(1); });

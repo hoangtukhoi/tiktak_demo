@@ -16,7 +16,22 @@ const { imageUpload } = require('../middlewares/upload.middleware');
 // ─── Static / authenticated-user routes ──────────────────────────────────────
 
 // GET  /users/search?q=   — search users by username (no auth required)
-router.get('/search', userController.searchUsers);
+router.get('/search', optionalAuth, userController.searchUsers); // optionalAuth: ẩn người đã chặn nhau
+
+// GET /users/mention-suggest?q= — gợi ý người để tag (@)
+router.get('/mention-suggest', optionalAuth, userController.mentionSuggest);
+
+// GET /users/me/saved      — video đã lưu (chỉ chủ tài khoản)
+router.get('/me/saved', authenticate, userController.getSavedVideos);
+
+// GET /users/me/liked      — video đã thả tim (chỉ chủ tài khoản)
+router.get('/me/liked', authenticate, userController.getLikedVideos);
+
+// Quyền riêng tư & chặn
+router.get('/me/privacy', authenticate, userController.getPrivacy);
+router.patch('/me/privacy', authenticate, userController.updatePrivacy);
+router.get('/me/blocked', authenticate, userController.getBlockedUsers);
+router.delete('/me/followers/:userId', authenticate, userController.removeFollower);
 
 // PATCH /users/me         — update own profile (auth required)
 router.patch('/me', authenticate, userController.updateProfile);
@@ -42,7 +57,19 @@ router.get('/:username', optionalAuth, userController.getProfile);
 // GET  /users/:username/videos  — get paginated videos for a user (was /:id/videos)
 router.get('/:username/videos', optionalAuth, userController.getUserVideos);
 
+// GET  /users/:username/followers | following | liked — theo cài đặt quyền riêng tư của người đó
+router.get('/:username/followers', optionalAuth, userController.getFollowers);
+router.get('/:username/following', optionalAuth, userController.getFollowing);
+router.get('/:username/liked', optionalAuth, userController.getUserLiked);
+
+// POST / DELETE /users/:username/block — chặn / bỏ chặn
+router.post('/:username/block', authenticate, userController.blockUser);
+router.delete('/:username/block', authenticate, userController.unblockUser);
+
+// GET  /users/:username/reposts — video người này đã đăng lại
+router.get('/:username/reposts', optionalAuth, userController.getUserReposts);
+
 // POST /users/:username/follow  — follow / unfollow a user (auth required)
 router.post('/:username/follow', authenticate, userController.followUser);
 
-module.exports = router;
+module.exports = router;

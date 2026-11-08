@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bell, LogOut, Plus, Search, Shield, User } from 'lucide-react';
+import { Bell, Lock, LogOut, Plus, Search, Shield, User } from 'lucide-react';
 import Avatar from '../common/Avatar';
 import Spinner from '../common/Spinner';
 import useAuth from '../../hooks/useAuth';
@@ -125,8 +125,12 @@ function UserMenu() {
               <p className="truncate font-bold">@{user?.username}</p>
               <p className="truncate text-xs text-paper-mute">{user?.email}</p>
             </div>
-            <Link to={`/profile/${user?.username}`} className={item}><User size={17} /> Hồ sơ</Link>
-            {isAdmin && <Link to="/admin" className={item}><Shield size={17} /> Quản trị</Link>}
+            {isAdmin
+              ? <Link to="/admin" className={item}><Shield size={17} /> Quản trị</Link>
+              : <>
+                <Link to={`/profile/${user?.username}`} className={item}><User size={17} /> Hồ sơ</Link>
+                <Link to="/settings/privacy" className={item}><Lock size={17} /> Quyền riêng tư</Link>
+              </>}
             <button onClick={signOut} className={`${item} w-full text-coral`}><LogOut size={17} /> Đăng xuất</button>
           </motion.div>
         )}

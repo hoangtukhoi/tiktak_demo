@@ -11,6 +11,7 @@
     "create:admin": "node src/scripts/createAdmin.js",
     "retranscode": "node src/scripts/retranscode.js",
     "seed:analytics": "node src/scripts/seedAnalytics.js",
+    "bot": "node src/scripts/bot.js",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --selectProjects unit",

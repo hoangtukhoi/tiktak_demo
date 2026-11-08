@@ -21,6 +21,13 @@ export default function useAuth() {
     return r.user;
   };
 
+  /** Đăng nhập Google: đổi mã 1 lần lấy token */
+  const signInWithGoogleCode = async (code) => {
+    const r = await authApi.exchangeGoogleCode(code);
+    setAuth(r.user, r.accessToken, r.refreshToken);
+    return r.user;
+  };
+
   const signOut = async () => {
     try { await authApi.logout(localStorage.getItem('refreshToken')); } catch { /* token có thể đã hết hạn */ }
     clearAuth();
@@ -36,5 +43,5 @@ export default function useAuth() {
     return false;
   };
 
-  return { user, isAuthenticated, isAdmin: user?.role === 'admin', signIn, signUp, signOut, requireAuth, setUser };
+  return { user, isAuthenticated, isAdmin: user?.role === 'admin', signIn, signUp, signInWithGoogleCode, signOut, requireAuth, setUser };
 }

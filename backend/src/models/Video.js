@@ -34,8 +34,20 @@ const videoSchema = new mongoose.Schema(
     likeCount: { type: Number, default: 0 },
     commentCount: { type: Number, default: 0 },
     shareCount: { type: Number, default: 0 },
+    saveCount: { type: Number, default: 0 },
+    repostCount: { type: Number, default: 0 },
+    // Người được tag trong mô tả video (@username)
+    mentions: [
+      {
+        _id: false,
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        username: String,
+      },
+    ],
     // Cài đặt
     isPrivate: { type: Boolean, default: false },
+    // Ghim lên đầu hồ sơ (tối đa 3 video / người); null = không ghim
+    pinnedAt: { type: Date, default: null },
     allowComment: { type: Boolean, default: true },
     allowDuet: { type: Boolean, default: true },
     // Duet
@@ -49,6 +61,7 @@ const videoSchema = new mongoose.Schema(
 // Index tìm kiếm
 videoSchema.index({ title: 'text', description: 'text', hashtags: 'text' });
 videoSchema.index({ userId: 1 });
+videoSchema.index({ userId: 1, pinnedAt: -1, _id: -1 });
 videoSchema.index({ status: 1, isPrivate: 1, createdAt: -1 });
 videoSchema.index({ hashtags: 1 });
 

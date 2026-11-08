@@ -8,7 +8,11 @@ const Comment = require('../models/Comment');
 const AudioTrack = require('../models/AudioTrack');
 const ViewEvent = require('../models/ViewEvent');
 const ShareEvent = require('../models/ShareEvent');
+const SavedVideo = require('../models/SavedVideo');
+const Repost = require('../models/Repost');
 const redis = require('../config/redis');
+const { resolveMentions } = require('../utils/mentions');
+const privacyService = require('./privacy.service');
 
 // Thời gian cache feed "For You" trong Redis (giây)
 const FEED_CACHE_TTL = Number(process.env.FEED_CACHE_TTL) || 60;
@@ -42,12 +46,12 @@ const pageOf = (cursor) => (isPageNumber(cursor) ? parseInt(cursor, 10) : 0);
  * - cursor là ObjectId → dùng _id < cursor
  * nextCursor luôn trả về số trang kế tiếp (khớp cách frontend gọi).
  */
-const findPaged = async (query, cursor, rawLimit) => {
+const findPaged = async (query, cursor, rawLimit, sort = { _id: -1 }) => {
   // limit ≤ 0 sẽ thành .limit(0) = "không giới hạn" trong MongoDB → kẹp tối thiểu 1
   const limit = Math.max(1, Number(rawLimit) || 1);
   const page = pageOf(cursor);
   const docs = await Video.find({ ...query, ...buildCursorQuery(cursor) })
-    .sort({ _id: -1 })
+    .sort(sort)
     .skip(isPageNumber(cursor) ? page * limit : 0)
     .limit(limit + 1)
     .populate('userId', USER_PROJECTION)
@@ -110,21 +114,89 @@ exports.getVideoById = async (id, currentUserId, currentUserRole) => {
   const isPublic =
     video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
   if (!isPublic && !isOwner && !isStaff) httpError('Video not found', 404);
+  // Đã chặn nhau → coi như video không tồn tại
+  if (currentUserId && !isOwner && !isStaff && (await privacyService.isBlockedBetween(currentUserId, ownerId))) {
+    httpError('Video not found', 404);
+  }
 
-  // Attach isLiked flag when a viewer is authenticated
+  // Attach isLiked / isSaved flags when a viewer is authenticated
   if (currentUserId) {
-    const liked = await Like.exists({
-      userId: currentUserId,
-      targetId: video._id,
-      targetType: 'video',
-    });
+    const [liked, saved] = await Promise.all([
+      Like.exists({ userId: currentUserId, targetId: video._id, targetType: 'video' }),
+      SavedVideo.exists({ userId: currentUserId, videoId: video._id }),
+    ]);
     video.isLiked = Boolean(liked);
+    video.isSaved = Boolean(saved);
   } else {
     video.isLiked = false;
+    video.isSaved = false;
   }
+  await attachRepostInfo([video], currentUserId);
 
   return video;
 };
+
+/**
+ * Gắn isLiked / isSaved cho cả danh sách video (feed, tìm kiếm, hồ sơ) bằng 2 truy vấn.
+ * Gọi SAU khi đọc cache feed để cờ luôn đúng với người đang xem.
+ *
+ * @param {Object[]} videos  — plain objects (lean)
+ * @param {string|undefined} userId
+ */
+exports.attachViewerFlags = async (videos, userId) => {
+  if (!Array.isArray(videos) || !videos.length) return videos;
+  if (!userId) {
+    videos.forEach((v) => { v.isLiked = false; v.isSaved = false; });
+    return videos;
+  }
+  const ids = videos.map((v) => v._id);
+  const [likes, saves] = await Promise.all([
+    Like.find({ userId, targetType: 'video', targetId: { $in: ids } }).select('targetId').lean(),
+    SavedVideo.find({ userId, videoId: { $in: ids } }).select('videoId').lean(),
+    attachRepostInfo(videos, userId),
+  ]);
+  const liked = new Set((likes || []).map((l) => String(l.targetId)));
+  const saved = new Set((saves || []).map((s) => String(s.videoId)));
+  videos.forEach((v) => {
+    v.isLiked = liked.has(String(v._id));
+    v.isSaved = saved.has(String(v._id));
+  });
+  return videos;
+};
+
+/**
+ * Gắn thông tin đăng lại cho người xem:
+ *  - isReposted: chính người xem đã đăng lại video này chưa
+ *  - repostedBy: tối đa 3 người mà người xem đang theo dõi đã đăng lại (mới nhất trước)
+ *  - repostedByCount: tổng số người đang theo dõi đã đăng lại
+ */
+async function attachRepostInfo(videos, userId) {
+  videos.forEach((v) => { v.isReposted = false; v.repostedBy = []; v.repostedByCount = 0; v.canRepost = true; });
+  if (!videos.length) return;
+  // Chủ video có cho phép người khác đăng lại không (Quyền riêng tư → allowRepost)
+  const ownerIds = [...new Set(videos.map((v) => String(v.userId?._id || v.userId)))];
+  const owners = (await User.find({ _id: { $in: ownerIds } }).select('privacy.allowRepost').lean()) || [];
+  const noRepost = new Set(owners.filter((o) => o.privacy?.allowRepost === false).map((o) => String(o._id)));
+  videos.forEach((v) => { v.canRepost = !noRepost.has(String(v.userId?._id || v.userId)); });
+  if (!userId) return;
+  const ids = videos.map((v) => v._id);
+  const follows = (await Follow.find({ followerId: userId }).select('followingId').lean()) || [];
+  const people = [userId, ...follows.map((f) => f.followingId)];
+  const reposts =
+    (await Repost.find({ videoId: { $in: ids }, userId: { $in: people } })
+      .sort({ _id: -1 })
+      .populate('userId', 'username displayName avatarUrl isVerified')
+      .lean()) || [];
+  const byVideo = new Map(videos.map((v) => [String(v._id), v]));
+  for (const r of reposts) {
+    const v = byVideo.get(String(r.videoId));
+    if (!v || !r.userId) continue;
+    if (String(r.userId._id) === String(userId)) { v.isReposted = true; continue; }
+    v.repostedByCount += 1;
+    if (v.repostedBy.length < 3) v.repostedBy.push({ ...r.userId, repostedAt: r.createdAt });
+  }
+}
+exports.attachRepostInfo = attachRepostInfo;
 
 /**
  * Update allowed fields on a video. Only the owner may do this.
@@ -142,13 +214,55 @@ exports.updateVideo = async (id, userId, data) => {
     if (key in data) update[key] = data[key];
   }
 
+  let before = null;
+  if ('title' in update || 'description' in update) {
+    before = await Video.findOne({ _id: id, userId }).select('title description mentions').lean();
+    if (before) {
+      const caption = `${update.title ?? before.title ?? ''} ${update.description ?? before.description ?? ''}`;
+      update.mentions = await resolveMentions(caption, { excludeIds: [userId] });
+    }
+  }
+
   const video = await Video.findOneAndUpdate({ _id: id, userId }, update, { new: true }).populate(
     'userId',
     USER_PROJECTION
   );
 
   if (!video) httpError('Video not found or you are not the owner', 404);
+
+  // Chỉ báo cho người MỚI được tag (người đã được tag trước đó không nhận lại)
+  if (before && update.mentions?.length) {
+    const old = new Set((before.mentions || []).map((m) => String(m.userId)));
+    const added = update.mentions.filter((m) => !old.has(String(m.userId)));
+    exports.notifyVideoMentions(video, added).catch((err) => console.error('[updateVideo] mention notify:', err.message));
+  }
   return video;
+};
+
+/**
+ * Gửi thông báo "đã nhắc đến bạn trong một video" cho người được tag trong mô tả.
+ * Chỉ gửi khi video đã công khai (ready, không riêng tư, không bị gỡ).
+ */
+exports.notifyVideoMentions = async (video, mentions = video.mentions) => {
+  if (!mentions?.length) return;
+  if (video.status !== 'ready' || video.isPrivate || video.moderationStatus === 'removed') return;
+  const owner = video.userId && typeof video.userId === 'object' && video.userId.username
+    ? video.userId
+    : await User.findById(video.userId).select('username avatarUrl').lean();
+  const notificationService = require('./notification.service');
+  await Promise.all(
+    mentions.map((m) =>
+      notificationService.createNotification(m.userId, 'mention', {
+        actorId: owner?._id || video.userId,
+        actorUsername: owner?.username,
+        actorAvatar: owner?.avatarUrl,
+        videoId: video._id,
+        videoThumbnail: video.thumbnailUrl,
+        context: 'video',
+        message: String(video.title || '').slice(0, 100),
+      })
+    )
+  );
 };
 
 /**
@@ -175,6 +289,8 @@ exports.deleteVideo = async (id, userId, role = 'user') => {
       Comment.deleteMany({ videoId: video._id }),
       AudioTrack.deleteMany({ videoId: video._id }),
       Report.deleteMany({ videoId: video._id }),
+      SavedVideo.deleteMany({ videoId: video._id }),
+      Repost.deleteMany({ videoId: video._id }),
     ]);
     if (video.status === 'ready') {
       await User.updateOne({ _id: video.userId, videoCount: { $gt: 0 } }, { $inc: { videoCount: -1 } });
@@ -184,7 +300,7 @@ exports.deleteVideo = async (id, userId, role = 'user') => {
     // phân biệt với video xử lý lỗi)
     const video = await Video.findOneAndUpdate(
       { _id: id, userId, status: { $ne: 'deleted' } },
-      { status: 'deleted' }
+      { status: 'deleted', pinnedAt: null }
     );
     if (!video) httpError('Video not found or you are not the owner', 404);
     if (video.status === 'ready') {
@@ -211,7 +327,31 @@ exports.getUserVideos = async (targetUserId, cursor, limit = 12, currentUserId) 
   // Non-owners cannot see private videos
   if (!isOwner) query.isPrivate = false;
 
-  return findPaged(query, cursor, limit);
+  // Video được ghim lên đầu (ghim sau nằm trước), rồi tới video mới nhất.
+  // Sắp giảm dần: pinnedAt = null nhỏ nhất nên video không ghim xếp sau.
+  return findPaged(query, cursor, limit, { pinnedAt: -1, _id: -1 });
+};
+
+const MAX_PINNED = 3;
+
+/**
+ * Ghim / bỏ ghim video lên đầu hồ sơ. Chỉ chủ video, tối đa 3 video.
+ * @returns {Promise<{ pinned: boolean, pinnedAt: Date|null }>}
+ */
+exports.togglePin = async (videoId, userId) => {
+  if (!mongoose.Types.ObjectId.isValid(videoId)) httpError('Invalid video id', 400);
+  const video = await Video.findOne({ _id: videoId, userId, status: 'ready' }).select('pinnedAt').lean();
+  if (!video) httpError('Video not found or you are not the owner', 404);
+
+  if (video.pinnedAt) {
+    await Video.updateOne({ _id: videoId }, { pinnedAt: null });
+    return { pinned: false, pinnedAt: null };
+  }
+  const count = await Video.countDocuments({ userId, status: 'ready', pinnedAt: { $ne: null } });
+  if (count >= MAX_PINNED) httpError(`Chỉ ghim được tối đa ${MAX_PINNED} video. Bỏ ghim một video khác trước.`, 409);
+  const pinnedAt = new Date();
+  await Video.updateOne({ _id: videoId, pinnedAt: null }, { pinnedAt });
+  return { pinned: true, pinnedAt };
 };
 
 /**
@@ -340,13 +480,68 @@ exports.getFollowingFeed = async (userId, cursor, limit = 20) => {
     return { videos: [], nextCursor: null };
   }
 
-  const query = {
-    userId: { $in: followingIds },
+  const publicFilter = {
     status: 'ready',
     isPrivate: false,
     moderationStatus: { $in: ['approved', 'pending'] },
   };
-  return findPaged(query, cursor, limit);
+
+  // Video được người mình theo dõi đăng lại (300 lượt gần nhất) cũng vào feed,
+  // xếp theo thời điểm đăng lại. Không có ai đăng lại → giữ cách phân trang cũ.
+  const reposts = await Repost.aggregate([
+    { $match: { userId: { $in: followingIds } } },
+    { $sort: { _id: -1 } },
+    { $limit: 300 },
+    { $group: { _id: '$videoId', at: { $max: '$createdAt' } } },
+  ]);
+  const usePaging = !cursor || isPageNumber(cursor);
+  if (!reposts.length || !usePaging) {
+    return findPaged({ userId: { $in: followingIds }, ...publicFilter }, cursor, limit);
+  }
+
+  const safeLimit = Math.max(1, Number(limit) || 1);
+  const page = pageOf(cursor);
+  const repostIds = reposts.map((r) => r._id);
+  const docs = await Video.aggregate([
+    {
+      $match: {
+        ...publicFilter,
+        userId: { $ne: new mongoose.Types.ObjectId(String(userId)) }, // video của mình do người khác đăng lại thì không cần hiện lại
+        $or: [{ userId: { $in: followingIds } }, { _id: { $in: repostIds } }],
+      },
+    },
+    {
+      $addFields: {
+        _ri: { $indexOfArray: [repostIds, '$_id'] },
+      },
+    },
+    {
+      $addFields: {
+        feedAt: {
+          $max: [
+            { $cond: [{ $in: ['$userId', followingIds] }, '$createdAt', null] },
+            { $cond: [{ $gte: ['$_ri', 0] }, { $arrayElemAt: [reposts.map((r) => r.at), '$_ri'] }, null] },
+          ],
+        },
+      },
+    },
+    { $sort: { feedAt: -1, _id: -1 } },
+    { $skip: page * safeLimit },
+    { $limit: safeLimit + 1 },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'userId',
+        foreignField: '_id',
+        pipeline: [{ $project: { username: 1, avatarUrl: 1, isVerified: 1 } }],
+        as: 'userDetails',
+      },
+    },
+    { $addFields: { userId: { $arrayElemAt: ['$userDetails', 0] } } },
+    { $project: { userDetails: 0, _ri: 0, feedAt: 0 } },
+  ]);
+  const hasMore = docs.length > safeLimit;
+  return { videos: hasMore ? docs.slice(0, safeLimit) : docs, nextCursor: hasMore ? String(page + 1) : null };
 };
 
 /**
@@ -516,24 +711,33 @@ exports.recordView = async (videoId, { watchTimeMs = 0, durationMs = 0, complete
   });
 };
 
+/** Số báo cáo CHƯA xử lý để video tự bị gắn cờ chờ admin xem (mặc định 3) */
+const REPORT_FLAG_THRESHOLD = () => Math.max(1, Number(process.env.REPORT_FLAG_THRESHOLD) || 3);
+
 /**
  * Submit a report against a video.
  * - A user can only report the same video once (enforced via unique index).
- * - When reportCount reaches 3, the video's moderationStatus is set to "flagged".
+ * - Không báo cáo được video của chính mình hoặc video mình không xem được.
+ * - reportCount = số báo cáo chưa xử lý; admin duyệt/gỡ video thì đưa về 0.
+ * - When reportCount reaches the threshold, the video's moderationStatus is set to "flagged".
  *
  * @param {string} videoId
  * @param {string} reporterId
- * @param {'spam'|'violence'|'sexual'|'other'} reason
+ * @param {string} reason  — một trong Report.REPORT_REASONS
+ * @param {string} [note]
  * @returns {Promise<Report>}
  */
-exports.reportVideo = async (videoId, reporterId, reason) => {
+exports.reportVideo = async (videoId, reporterId, reason, note = '') => {
   const video = await Video.findById(videoId);
   if (!video) httpError('Video not found', 404);
+  const isPublic = video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
+  if (!isPublic) httpError('Video not found', 404);
+  if (String(video.userId) === String(reporterId)) httpError('Bạn không thể báo cáo video của chính mình', 400);
 
   // Create the report — unique index will throw E11000 on duplicate
   let report;
   try {
-    report = await Report.create({ videoId, reporterId, reason });
+    report = await Report.create({ videoId, reporterId, reason, note: String(note || '').trim().slice(0, 300) });
   } catch (err) {
     if (err.code === 11000) httpError('You have already reported this video', 409);
     throw err;
@@ -546,18 +750,116 @@ exports.reportVideo = async (videoId, reporterId, reason) => {
     { new: true }
   );
 
-  if (updatedVideo && updatedVideo.reportCount >= 3) {
-    await Video.findByIdAndUpdate(videoId, { moderationStatus: 'flagged' });
+  if (
+    updatedVideo &&
+    updatedVideo.reportCount >= REPORT_FLAG_THRESHOLD() &&
+    !['flagged', 'removed'].includes(updatedVideo.moderationStatus)
+  ) {
+    await Video.findByIdAndUpdate(videoId, {
+      moderationStatus: 'flagged',
+      flagReason: `Bị báo cáo ${updatedVideo.reportCount} lần`,
+    });
   }
 
   return report;
 };
 
+// ─── Lưu video (bookmark) ───────────────────────────────────────────────────
+
+/**
+ * Bật/tắt lưu video. Chỉ lưu được video mình xem được.
+ * @returns {Promise<{ saved: boolean, saveCount: number }>}
+ */
+exports.toggleSave = async (videoId, userId, role) => {
+  if (!mongoose.Types.ObjectId.isValid(videoId)) httpError('Invalid video id', 400);
+  await exports.getVideoById(videoId, userId, role);
+
+  const removed = await SavedVideo.findOneAndDelete({ userId, videoId });
+  if (removed) {
+    const v = await Video.findOneAndUpdate(
+      { _id: videoId, saveCount: { $gt: 0 } },
+      { $inc: { saveCount: -1 } },
+      { new: true, projection: { saveCount: 1 } }
+    ).lean();
+    return { saved: false, saveCount: v?.saveCount ?? 0 };
+  }
+
+  try {
+    await SavedVideo.create({ userId, videoId });
+  } catch (err) {
+    // Bấm lưu 2 lần liên tiếp → coi như đã lưu
+    if (err.code !== 11000) throw err;
+    const v = await Video.findById(videoId).select('saveCount').lean();
+    return { saved: true, saveCount: v?.saveCount ?? 0 };
+  }
+  const v = await Video.findByIdAndUpdate(videoId, { $inc: { saveCount: 1 } }, { new: true, projection: { saveCount: 1 } }).lean();
+  return { saved: true, saveCount: v?.saveCount ?? 0 };
+};
+
+/**
+ * Danh sách video đã lưu (mới lưu trước), phân trang theo số trang.
+ * Video đã xoá / bị gỡ / bị chủ chuyển sang riêng tư được bỏ qua.
+ */
+exports.getSavedVideos = async (userId, cursor, rawLimit = 12) => {
+  const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 12, 1), 50);
+  const page = pageOf(cursor);
+  const rows = await SavedVideo.find({ userId })
+    .sort({ _id: -1 })
+    .skip(page * limit)
+    .limit(limit + 1)
+    .populate({ path: 'videoId', populate: { path: 'userId', select: USER_PROJECTION } })
+    .lean();
+  const hasMore = rows.length > limit;
+  const videos = rows
+    .slice(0, limit)
+    .map((r) => r.videoId && { ...r.videoId, savedAt: r.createdAt })
+    .filter((v) => {
+      if (!v) return false;
+      const isOwner = String(v.userId?._id || v.userId) === String(userId);
+      const isPublic = v.status === 'ready' && !v.isPrivate && v.moderationStatus !== 'removed';
+      return isPublic || (isOwner && v.status === 'ready' && v.moderationStatus !== 'removed');
+    });
+  await exports.attachViewerFlags(videos, userId);
+  return { videos, nextCursor: hasMore ? String(page + 1) : null };
+};
+
+/**
+ * Mỗi tài khoản chỉ được tính 1 lượt chia sẻ cho 1 video (khách: 1 lượt / IP / 24 giờ).
+ * Chia sẻ lại (bấm sao chép link nhiều lần...) vẫn thành công nhưng không tăng bộ đếm.
+ *
+ * Khoá Redis SET NX là chốt chặn nguyên tử (bấm liên tục cùng lúc chỉ 1 request lọt);
+ * ShareEvent cũ là chốt thứ 2 khi Redis bị xoá dữ liệu.
+ * @returns {Promise<boolean>} true nếu đây là lượt chia sẻ đầu tiên
+ */
+async function claimFirstShare(videoId, userId, ip) {
+  const key = userId ? `share:u:${userId}:${videoId}` : ip ? `share:ip:${ip}:${videoId}` : null;
+  if (!key) return true;
+  try {
+    // ioredis trả null khi khoá đã tồn tại
+    const r = await redis.set(key, '1', 'EX', userId ? 400 * 24 * 3600 : 24 * 3600, 'NX');
+    if (r === null) return false;
+  } catch (err) {
+    console.warn('[share] Redis lỗi, kiểm tra bằng MongoDB:', err.message);
+  }
+  if (userId && (await ShareEvent.exists({ videoId, userId }))) return false;
+  return true;
+}
+
 /**
  * Ghi 1 lượt chia sẻ video: tăng shareCount + lưu ShareEvent cho trang phân tích.
- * @param {'native'|'copy_link'|'other'} method
+ * Mỗi tài khoản chỉ được tính 1 lần / video (xem claimFirstShare).
+ * @param {string} method  — một trong ShareEvent.SHARE_METHODS (facebook, messenger, zalo, copy_link...)
+ * @returns {Promise<{ shareCount: number, counted: boolean }>}
  */
-exports.recordShare = async (videoId, { userId = null, method = 'other' } = {}) => {
+exports.recordShare = async (videoId, { userId = null, method = 'other', ip = null } = {}) => {
+  const exists = await Video.exists({ _id: videoId, status: 'ready' });
+  if (!exists) httpError('Video not found', 404);
+
+  if (!(await claimFirstShare(videoId, userId, ip))) {
+    const current = await Video.findById(videoId).select('shareCount').lean();
+    return { shareCount: current?.shareCount ?? 0, counted: false };
+  }
+
   const video = await Video.findOneAndUpdate(
     { _id: videoId, status: 'ready' },
     { $inc: { shareCount: 1 } },
@@ -569,8 +871,110 @@ exports.recordShare = async (videoId, { userId = null, method = 'other' } = {}) 
       videoId: video._id,
       creatorId: video.userId,
       userId: userId || null,
-      method: ['native', 'copy_link'].includes(method) ? method : 'other',
+      method: ShareEvent.SHARE_METHODS.includes(method) ? method : 'other',
     });
   }
-  return { shareCount: video.shareCount };
+  return { shareCount: video.shareCount, counted: true };
+};
+
+// ─── Đăng lại (repost) & video đã thích ─────────────────────────────────────
+
+const isPublicVideo = (v) => v && v.status === 'ready' && !v.isPrivate && v.moderationStatus !== 'removed';
+
+/**
+ * Bật/tắt đăng lại video. Chỉ đăng lại được video công khai của người khác.
+ * Lần đầu đăng lại → báo cho chủ video.
+ * @returns {Promise<{ reposted: boolean, repostCount: number }>}
+ */
+exports.toggleRepost = async (videoId, user) => {
+  if (!mongoose.Types.ObjectId.isValid(videoId)) httpError('Invalid video id', 400);
+  const video = await Video.findById(videoId).select('userId status isPrivate moderationStatus thumbnailUrl title').lean();
+  if (!isPublicVideo(video)) httpError('Video not found', 404);
+  if (String(video.userId) === String(user._id)) httpError('Không thể đăng lại video của chính mình', 400);
+  if (await privacyService.isBlockedBetween(user._id, video.userId)) httpError('Video not found', 404);
+
+  const removed = await Repost.findOneAndDelete({ userId: user._id, videoId });
+  if (!removed) {
+    // Chỉ chặn ĐĂNG LẠI mới; bỏ đăng lại thì luôn được
+    const owner = await User.findById(video.userId).select('privacy.allowRepost').lean();
+    if (owner?.privacy?.allowRepost === false) httpError('Tác giả không cho phép đăng lại video này', 403);
+  }
+  if (removed) {
+    const v = await Video.findOneAndUpdate(
+      { _id: videoId, repostCount: { $gt: 0 } },
+      { $inc: { repostCount: -1 } },
+      { new: true, projection: { repostCount: 1 } }
+    ).lean();
+    return { reposted: false, repostCount: v?.repostCount ?? 0 };
+  }
+
+  try {
+    await Repost.create({ userId: user._id, videoId });
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+    const v = await Video.findById(videoId).select('repostCount').lean();
+    return { reposted: true, repostCount: v?.repostCount ?? 0 };
+  }
+  const v = await Video.findByIdAndUpdate(videoId, { $inc: { repostCount: 1 } }, { new: true, projection: { repostCount: 1 } }).lean();
+
+  // Báo chủ video (mỗi người đăng lại chỉ báo 1 lần / ngày, tránh bấm bật/tắt liên tục để spam)
+  let notify = true;
+  try {
+    notify = (await redis.set(`repost-notif:${user._id}:${videoId}`, '1', 'EX', 24 * 3600, 'NX')) !== null;
+  } catch { /* Redis lỗi → vẫn báo */ }
+  if (notify) {
+    await require('./notification.service')
+      .createNotification(video.userId, 'repost', {
+        actorId: user._id,
+        actorUsername: user.username,
+        actorAvatar: user.avatarUrl,
+        videoId: video._id,
+        videoThumbnail: video.thumbnailUrl,
+      })
+      .catch((err) => console.error('[repost] notification error:', err.message));
+  }
+  return { reposted: true, repostCount: v?.repostCount ?? 0 };
+};
+
+/** Gom danh sách video từ các bản ghi (Repost / Like / SavedVideo...) theo thứ tự, bỏ video không còn công khai */
+async function pagedFromRefs(Model, filter, videoField, cursor, rawLimit, viewerId) {
+  const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 12, 1), 50);
+  const page = pageOf(cursor);
+  const rows = await Model.find(filter)
+    .sort({ _id: -1 })
+    .skip(page * limit)
+    .limit(limit + 1)
+    .select(`${videoField} createdAt`)
+    .lean();
+  const hasMore = rows.length > limit;
+  const refs = rows.slice(0, limit);
+  const vids = await Video.find({ _id: { $in: refs.map((r) => r[videoField]) } }).populate('userId', USER_PROJECTION).lean();
+  const byId = new Map(vids.map((v) => [String(v._id), v]));
+  const videos = refs
+    .map((r) => {
+      const v = byId.get(String(r[videoField]));
+      if (!v) return null;
+      const isOwner = viewerId && String(v.userId?._id || v.userId) === String(viewerId);
+      if (!isPublicVideo(v) && !(isOwner && v.status === 'ready' && v.moderationStatus !== 'removed')) return null;
+      return { ...v, addedAt: r.createdAt };
+    })
+    .filter(Boolean);
+  await exports.attachViewerFlags(videos, viewerId);
+  return { videos, nextCursor: hasMore ? String(page + 1) : null };
+}
+
+/** Tab "Đăng lại" trên hồ sơ (công khai) */
+exports.getUserReposts = (targetUserId, cursor, limit, viewerId) =>
+  pagedFromRefs(Repost, { userId: targetUserId }, 'videoId', cursor, limit, viewerId);
+
+/** Tab "Đã tim": video đã thích (quyền xem kiểm tra ở controller theo cài đặt likedVisibility) */
+exports.getLikedVideos = (userId, cursor, limit, viewerId = userId) =>
+  pagedFromRefs(Like, { userId, targetType: 'video' }, 'targetId', cursor, limit, viewerId);
+
+/** Bỏ video của những người đã chặn nhau với người xem (feed, tìm kiếm) */
+exports.removeBlocked = async (videos, userId) => {
+  if (!userId || !videos?.length) return videos;
+  const blocked = await privacyService.blockedIdSet(userId);
+  if (!blocked.size) return videos;
+  return videos.filter((v) => !blocked.has(String(v.userId?._id || v.userId)));
 };

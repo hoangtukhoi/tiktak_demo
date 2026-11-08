@@ -55,6 +55,12 @@ const comments = videos.flatMap((v, i) => [
 
 const tracks = [];
 const likes = new Set();
+const saves = new Set();
+const reported = new Set();
+const shared = new Set();
+const reposts = new Set();
+const blockedNames = new Set();
+let privacy = { followersVisibility: 'everyone', followingVisibility: 'everyone', likedVisibility: 'only_me', repostsVisibility: 'everyone', commentPermission: 'everyone', mentionPermission: 'everyone', allowRepost: true, discoverable: true };
 let notifications = [
   { _id: 'n1', type: 'new_like', payload: { actorUsername: 'linh_dance', videoId: 'v0' }, isRead: false, createdAt: ago(0.2) },
   { _id: 'n2', type: 'new_follower', payload: { actorUsername: 'trekviet' }, isRead: false, createdAt: ago(1.5) },
@@ -65,7 +71,9 @@ const read = (k, f) => { try { return JSON.parse(localStorage.getItem(k)) ?? f; 
 let me = read('mock-me', null);
 const setMe = (u) => { me = u; localStorage.setItem('mock-me', JSON.stringify(u)); };
 
-const pop = (v) => ({ ...v, userId: users.find((u) => u._id === v.userId) || me || { _id: v.userId, username: 'user' }, isLiked: likes.has(v._id) });
+const pop = (v) => ({ ...v, userId: users.find((u) => u._id === v.userId) || me || { _id: v.userId, username: 'user' }, isLiked: likes.has(v._id), isSaved: saves.has(v._id), saveCount: (v.saveCount || 0), isReposted: reposts.has(v._id), repostCount: v.repostCount || 0,
+  // Demo: video v1 được 2 người bạn theo dõi đăng lại
+  repostedBy: v._id === 'v1' ? [users[2], users[6]] : [], repostedByCount: v._id === 'v1' ? 3 : 0 });
 const popC = (c) => ({ ...c, userId: users.find((u) => u._id === c.userId) || (me && me._id === c.userId ? me : { _id: c.userId, username: 'user' }) });
 const visible = () => videos.filter((v) => v.status === 'ready' && v.moderationStatus !== 'removed');
 const tokens = () => ({ accessToken: 'mock.' + oid(), refreshToken: 'mock-r.' + oid() });
@@ -81,6 +89,63 @@ const fail = (message, status = 400) => ({ status, data: { success: false, messa
 const authed = (h) => (me ? h() : fail('Unauthorized', 401));
 
 const routes = [
+  // ── Lưu video, báo cáo, gợi ý tag (đặt trước các route /users/:username) ──
+  ['post', /^\/videos\/([^/]+)\/save$/, (_, p, c, [id]) => authed(() => {
+    const v = videos.find((x) => x._id === id);
+    if (!v) return fail('Video not found', 404);
+    saves.has(id) ? (saves.delete(id), (v.saveCount = Math.max(0, (v.saveCount || 0) - 1))) : (saves.add(id), (v.saveCount = (v.saveCount || 0) + 1));
+    return ok({ saved: saves.has(id), saveCount: v.saveCount });
+  })],
+  ['post', /^\/videos\/([^/]+)\/share$/, (_, p, c, [id]) => {
+    const v = videos.find((x) => x._id === id);
+    if (!v) return fail('Video not found', 404);
+    const counted = !shared.has(id); // mỗi tài khoản chỉ tính 1 lượt / video
+    if (counted) { shared.add(id); v.shareCount++; }
+    return ok({ shareCount: v.shareCount, counted });
+  }],
+  // ── Quyền riêng tư / danh sách theo dõi / chặn (demo) ──
+  ['get', /^\/users\/me\/privacy$/, () => authed(() => ok(privacy))],
+  ['patch', /^\/users\/me\/privacy$/, (b) => authed(() => { privacy = { ...privacy, ...b }; return ok(privacy); })],
+  ['get', /^\/users\/me\/blocked$/, () => authed(() => ok(users.filter((u) => blockedNames.has(u.username)).map((u) => ({ ...u, blockedAt: new Date().toISOString() }))))],
+  ['delete', /^\/users\/me\/followers\/([^/]+)$/, () => authed(() => ok({ removed: true }))],
+  ['post', /^\/users\/([^/]+)\/block$/, (_, p, c, [name]) => authed(() => { blockedNames.add(name); return ok({ blocked: true }); })],
+  ['delete', /^\/users\/([^/]+)\/block$/, (_, p, c, [name]) => authed(() => { blockedNames.delete(name); return ok({ blocked: false }); })],
+  ['post', /^\/users\/([^/]+)\/follow$/, () => authed(() => ok({ following: true }))],
+  ['get', /^\/users\/([^/]+)\/(followers|following)$/, (_, p, c, [name, kind]) => {
+    const list = users.filter((u) => u.username !== name).slice(kind === 'followers' ? 0 : 4, kind === 'followers' ? 6 : 8)
+      .filter((u) => !p.q || u.username.includes(p.q))
+      .map((u, i) => ({ ...u, isMe: false, isFollowing: i % 2 === 0, followsYou: i % 3 === 0 }));
+    return ok(list);
+  }],
+  ['get', /^\/users\/([^/]+)\/liked$/, () => fail('Người dùng đã ẩn mục này', 403)],
+  ['post', /^\/videos\/([^/]+)\/pin$/, (_, p, c, [id]) => authed(() => {
+    const v = videos.find((x) => x._id === id);
+    if (!v) return fail('Video not found', 404);
+    if (!v.pinnedAt && videos.filter((x) => x.pinnedAt && x.userId === v.userId).length >= 3) return fail('Chỉ ghim được tối đa 3 video. Bỏ ghim một video khác trước.', 409);
+    v.pinnedAt = v.pinnedAt ? null : new Date().toISOString();
+    return ok({ pinned: Boolean(v.pinnedAt), pinnedAt: v.pinnedAt });
+  })],
+  ['post', /^\/videos\/([^/]+)\/repost$/, (_, p, c, [id]) => authed(() => {
+    const v = videos.find((x) => x._id === id);
+    if (!v) return fail('Video not found', 404);
+    reposts.has(id) ? (reposts.delete(id), (v.repostCount = Math.max(0, (v.repostCount || 0) - 1))) : (reposts.add(id), (v.repostCount = (v.repostCount || 0) + 1));
+    return ok({ reposted: reposts.has(id), repostCount: v.repostCount });
+  })],
+  ['get', /^\/users\/me\/liked$/, () => authed(() => ok(visible().filter((v) => likes.has(v._id)).map(pop)))],
+  ['get', /^\/users\/([^/]+)\/reposts$/, (_, p, c, [name]) => ok(me && name === me.username ? visible().filter((v) => reposts.has(v._id)).map(pop) : [])],
+  ['get', /^\/users\/me\/saved$/, () => authed(() => ok(visible().filter((v) => saves.has(v._id)).map(pop)))],
+  ['post', /^\/videos\/([^/]+)\/report$/, (b, p, c, [id]) => authed(() => {
+    if (reported.has(id)) return fail('You have already reported this video', 409);
+    reported.add(id);
+    return ok({ _id: oid(), videoId: id, reason: b.reason, note: b.note || '' }, 201);
+  })],
+  ['get', /^\/users\/mention-suggest$/, (_, p) => {
+    const q = String(p.q || '').replace(/^@/, '').toLowerCase();
+    return ok(users.filter((u) => u.username.startsWith(q)).slice(0, 8));
+  }],
+  ['get', /^\/admin\/reports$/, () => ok(videos.filter((v) => v.moderationStatus === 'flagged').map((v) => ({ ...pop(v), openReports: 3, reasonCounts: { spam: 2, other: 1 }, lastReportedAt: ago(1), reports: [] })))],
+  ['get', /^\/admin\/comments$/, () => ok([])],
+  ['post', /^\/admin\/comments\/([^/]+)\/(approve|reject)$/, () => ok(null)],
   ['post', /^\/auth\/login$/, (b) => {
     if (!b.email || !b.password) return fail('Validation error', 400);
     const username = b.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') || 'user';
@@ -128,7 +193,9 @@ const routes = [
   ['get', /^\/comments\/video\/([^/]+)$/, (_, p, c, [id]) => ok(comments.filter((x) => x.videoId === id && !x.parentId).map(popC))],
   ['get', /^\/comments\/([^/]+)\/replies$/, () => ok([])],
   ['post', /^\/comments$/, (b) => authed(() => {
-    const cm = { _id: oid(), videoId: b.videoId, userId: me._id, parentId: b.parentId || null, content: b.content || b.text, likeCount: 0, replyCount: 0, createdAt: new Date().toISOString() };
+    const content = b.content || b.text;
+    const mentions = [...content.matchAll(/@([a-zA-Z0-9_]{3,30})/g)].map((m) => users.find((u) => u.username === m[1])).filter(Boolean).map((u) => ({ userId: u._id, username: u.username }));
+    const cm = { _id: oid(), videoId: b.videoId, userId: me._id, parentId: b.parentId || null, content, mentions, moderationStatus: 'approved', likeCount: 0, replyCount: 0, createdAt: new Date().toISOString() };
     comments.unshift(cm);
     const v = videos.find((x) => x._id === b.videoId); if (v) v.commentCount++;
     return ok(popC(cm), 201);

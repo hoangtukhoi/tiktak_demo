@@ -7,7 +7,7 @@ const { viewLimiter } = require('../middlewares/rateLimit.middleware');
 // ─── Static / non-parameterised routes (must appear before /:id) ──────────────
 
 // Full-text search
-router.get('/search', videoController.searchVideos);
+router.get('/search', optionalAuth, videoController.searchVideos); // optionalAuth: cờ thích/lưu + ẩn người đã chặn
 
 // Trending hashtags aggregated from recent videos
 // IMPORTANT: this must be declared before /:id so Express doesn't treat
@@ -31,6 +31,15 @@ router.post('/:id/like', authenticate, videoController.likeVideo);
 router.post('/:id/view', viewLimiter, optionalAuth, videoController.recordView);
 router.post('/:id/share', viewLimiter, optionalAuth, videoController.shareVideo);
 
+// Ghim / bỏ ghim video lên đầu hồ sơ
+router.post('/:id/pin', authenticate, videoController.togglePin);
+
+// Đăng lại / bỏ đăng lại video
+router.post('/:id/repost', authenticate, videoController.toggleRepost);
+
+// Lưu / bỏ lưu video (bookmark)
+router.post('/:id/save', authenticate, videoController.toggleSave);
+
 // Report a video (authenticated; one report per user per video)
 router.post('/:id/report', authenticate, videoController.reportVideo);
 
@@ -40,4 +49,4 @@ router.post('/:id/report', authenticate, videoController.reportVideo);
 // Yêu cầu header x-internal-key = INTERNAL_KEY
 router.patch('/:id/urls', requireInternalKey, videoController.updateVideoUrls);
 
-module.exports = router;
+module.exports = router;

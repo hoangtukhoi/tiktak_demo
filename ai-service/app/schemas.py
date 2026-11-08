@@ -60,3 +60,21 @@ class HealthResponse(BaseModel):
     translator_loaded: bool
     tts_engine: str
     device: str
+    moderation_configured: bool = False
+    moderation_loaded: bool = False
+    moderation_error: Optional[str] = None
+
+
+class ModerateRequest(BaseModel):
+    texts: list[str] = Field(default_factory=list)
+
+
+class ModerationResult(BaseModel):
+    label: str
+    score: float  # 0–1: xác suất KHÔNG sạch
+    scores: dict[str, float] = Field(default_factory=dict)
+
+
+class ModerateResponse(BaseModel):
+    results: list[ModerationResult] = Field(default_factory=list)
+    model: str = ""

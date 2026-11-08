@@ -49,6 +49,18 @@ async function post(path, body, mockData) {
   throw new Error(`AI service ${path} lỗi: ${detail}`);
 }
 
+/**
+ * Gọi nhanh 1 lần, không retry (dùng cho việc cần trả lời ngay như kiểm duyệt bình luận).
+ * Lỗi được ném ra để nơi gọi tự chọn phương án dự phòng.
+ */
+async function postQuick(path, body, timeoutMs = 3000) {
+  const { data } = await http.post(`${baseURL()}${path}`, body, {
+    timeout: timeoutMs,
+    headers: { 'x-internal-key': process.env.INTERNAL_KEY || '' },
+  });
+  return data;
+}
+
 async function health() {
   if (isMock()) return { available: true, mock: true };
   try {
@@ -73,4 +85,4 @@ function mediaUrlForAI(url) {
   return url.startsWith(publicBase) ? target.replace(/\/$/, '') + url.slice(publicBase.length) : url;
 }
 
-module.exports = { post, health, isMock, mediaUrlForAI };
+module.exports = { post, postQuick, health, isMock, mediaUrlForAI };

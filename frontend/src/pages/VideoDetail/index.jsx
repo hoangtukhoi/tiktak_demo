@@ -5,6 +5,7 @@ import useAuth from '../../hooks/useAuth';
 import VideoCard from '../../components/video/VideoCard';
 import CommentList from '../../components/comment/CommentList';
 import Avatar from '../../components/common/Avatar';
+import RichText from '../../components/common/RichText';
 import { getVideo } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount, timeAgo } from '../../utils/format';
@@ -53,7 +54,7 @@ export default function VideoDetail() {
         </button>
         {video && (me?._id === video.author._id || isAdmin) && (
           <Link
-            to={me?._id === video.author._id ? `/analytics/video/${video._id}` : `/admin/videos/${video._id}/analytics`}
+            to={me?._id === video.author._id && !isAdmin ? `/analytics/video/${video._id}` : `/admin/videos/${video._id}/analytics`}
             className="absolute left-16 top-4 z-30 inline-flex h-10 items-center gap-1.5 rounded-full bg-black/40 px-4 text-sm font-bold text-white backdrop-blur transition hover:bg-black/60"
           >
             <BarChart3 size={16} /> Phân tích
@@ -78,8 +79,8 @@ export default function VideoDetail() {
                     <span className="font-mono text-xs text-paper-mute">{timeAgo(video.createdAt)}</span>
                   </span>
                 </Link>
-                <h1 className="mt-4 text-2xl font-extrabold">{video.title}</h1>
-                {video.description && <p className="mt-2 whitespace-pre-wrap text-paper-dim">{video.description}</p>}
+                <h1 className="mt-4 text-2xl font-extrabold"><RichText text={video.title} mentions={video.mentions} /></h1>
+                {video.description && <p className="mt-2 whitespace-pre-wrap text-paper-dim"><RichText text={video.description} mentions={video.mentions} /></p>}
                 {video.hashtags.length > 0 && (
                   <p className="mt-2 flex flex-wrap gap-2 font-mono text-sm font-bold">{video.hashtags.map((t) => <Link key={t} to={`/search?q=%23${t}`} className="hover:text-lime">#{t}</Link>)}</p>
                 )}
@@ -90,7 +91,7 @@ export default function VideoDetail() {
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-5">
-                <CommentList videoId={video._id} allowComment={video.allowComment !== false} onCountChange={(d) => setComments((c) => c + d)} />
+                <CommentList videoId={video._id} videoOwnerId={video.author._id} policy={video.commentPolicy} allowComment={video.allowComment !== false} onCountChange={(d) => setComments((c) => c + d)} />
               </div>
             </>
           ) : (

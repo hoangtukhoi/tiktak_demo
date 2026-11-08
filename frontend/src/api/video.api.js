@@ -19,7 +19,17 @@ export const normalizeVideo = (v) => {
     commentCount: v.commentCount ?? 0,
     shareCount: v.shareCount ?? 0,
     viewCount: v.viewCount ?? 0,
+    saveCount: v.saveCount ?? 0,
+    repostCount: v.repostCount ?? 0,
     isLiked: !!v.isLiked,
+    isSaved: !!v.isSaved,
+    isReposted: !!v.isReposted,
+    canRepost: v.canRepost !== false, // tác giả cho phép đăng lại (quyền riêng tư)
+    commentPolicy: v.commentPolicy || null, // { allowed, reason } — chỉ có ở trang chi tiết video
+    // Người mình theo dõi đã đăng lại video này (tối đa 3) + tổng số
+    repostedBy: v.repostedBy || [],
+    repostedByCount: v.repostedByCount ?? (v.repostedBy?.length || 0),
+    mentions: v.mentions || [],
   };
 };
 const list = (r) => (d(r) || []).map(normalizeVideo);
@@ -34,6 +44,23 @@ export const createVideo = (data) => api.post('/videos', data).then((r) => norma
 export const updateVideo = (id, data) => api.patch(`/videos/${id}`, data).then((r) => normalizeVideo(d(r)));
 export const deleteVideo = (id) => api.delete(`/videos/${id}`);
 export const likeVideo = (id) => api.post(`/videos/${id}/like`).then(d); // backend hiện trả null -> UI tự toggle
+/** Lưu / bỏ lưu video → { saved, saveCount } */
+export const toggleSaveVideo = (id) => api.post(`/videos/${id}/save`).then(d);
+const pageOf = (r) => ({ videos: (d(r) || []).map(normalizeVideo), nextCursor: r.data.pagination?.nextCursor ?? null });
+/** Video đã lưu của chính mình (cursor = số trang 0, 1, 2...) → { videos, nextCursor } */
+export const getSavedVideos = (cursor) => api.get('/users/me/saved', { params: { cursor } }).then(pageOf);
+/** Video đã thả tim của chính mình → { videos, nextCursor } */
+export const getLikedVideos = (cursor) => api.get('/users/me/liked', { params: { cursor } }).then(pageOf);
+/** Video một người đã đăng lại (công khai) → { videos, nextCursor } */
+export const getUserReposts = (username, cursor) => api.get(`/users/${username}/reposts`, { params: { cursor } }).then(pageOf);
+/** Ghim / bỏ ghim video lên đầu hồ sơ (tối đa 3) → { pinned, pinnedAt } */
+export const togglePinVideo = (id) => api.post(`/videos/${id}/pin`).then(d);
+/** Đăng lại / bỏ đăng lại → { reposted, repostCount } */
+export const toggleRepost = (id) => api.post(`/videos/${id}/repost`).then(d);
+/** Báo cáo video. reason: một trong REPORT_REASONS (utils/constants.js) */
+export const reportVideo = (id, reason, note) => api.post(`/videos/${id}/report`, { reason, note }).then(d);
+/** Gợi ý người để tag khi gõ "@" */
+export const mentionSuggest = (q) => api.get('/users/mention-suggest', { params: { q } }).then((r) => d(r) || []);
 /**
  * Ghi 1 lượt xem khi người xem rời video: { watchTimeMs, durationMs, completed, source }.
  * Dùng fetch `keepalive` để request vẫn được gửi khi đóng tab / chuyển trang.
@@ -85,10 +112,14 @@ export const normalizeComment = (c) => ({
   user: c.userId && typeof c.userId === 'object' ? c.userId : c.user || { _id: c.userId, username: 'user' },
   likeCount: c.likeCount ?? 0,
   replyCount: c.replyCount ?? 0,
+  isLiked: !!c.isLiked,
+  mentions: c.mentions || [],
+  // approved | pending (chờ duyệt) | rejected (bị ẩn) — bình luận cũ không có trường này
+  moderationStatus: c.moderationStatus || 'approved',
 });
 export const getComments = (videoId) => api.get(`/comments/video/${videoId}`).then((r) => (d(r) || []).map(normalizeComment));
 export const getReplies = (commentId) => api.get(`/comments/${commentId}/replies`).then((r) => (d(r) || []).map(normalizeComment));
 export const createComment = (videoId, text, parentId) =>
-  api.post('/comments', { videoId, text, content: text, parentId }).then((r) => normalizeComment(d(r)));
+  api.post('/comments', { videoId, text, content: text, parentId }).then((r) => ({ ...normalizeComment(d(r)), _message: r.data.message }));
 export const deleteComment = (id) => api.delete(`/comments/${id}`);
 export const likeComment = (id) => api.post(`/comments/${id}/like`).then(d);

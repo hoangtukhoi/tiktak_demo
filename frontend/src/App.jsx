@@ -18,7 +18,7 @@ export default function App() {
   // Socket + số thông báo chưa đọc
   useEffect(() => {
     if (!isAuthenticated) return disconnectSocket();
-    connectSocket(localStorage.getItem('accessToken'));
+    connectSocket();
     getUnreadCount().then(useNotificationStore.getState().setUnreadCount).catch(() => {});
     return () => disconnectSocket();
   }, [isAuthenticated]);

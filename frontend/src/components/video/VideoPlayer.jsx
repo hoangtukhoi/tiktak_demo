@@ -31,7 +31,7 @@ export function VideoPlaceholder({ seed = '', label }) {
  * Lớp hiển thị video. Trạng thái phát lấy từ useVideoPlayer (gọi ở VideoCard để dùng chung cho phụ đề/lồng tiếng).
  */
 export default function VideoPlayer({ video, player, near, showPoster = true }) {
-  const { videoRef, barRef, bind, paused, buffering, error, seek } = player;
+  const { attachRef, barRef, bind, paused, buffering, error, seek } = player;
   const trackRef = useRef(null);
   const playable = video.src && !error;
 
@@ -46,7 +46,7 @@ export default function VideoPlayer({ video, player, near, showPoster = true }) 
         <img src={video.thumbnailUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />
       )}
       {playable && near ? (
-        <video ref={videoRef} poster={video.thumbnailUrl || undefined} className="absolute inset-0 h-full w-full object-cover" {...bind} />
+        <video ref={attachRef} poster={video.thumbnailUrl || undefined} className="absolute inset-0 h-full w-full object-cover" {...bind} />
       ) : playable && video.thumbnailUrl ? (
         <img src={video.thumbnailUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
       ) : (

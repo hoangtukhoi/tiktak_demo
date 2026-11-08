@@ -32,6 +32,20 @@ const userSchema = new mongoose.Schema(
     banReason: { type: String, default: null },
     lastLoginAt: { type: Date, default: null },
     refreshTokens: [{ type: String, select: false }], // lưu refresh tokens hợp lệ
+
+    // ── Quyền riêng tư (xem services/privacy.service.js) ─────────────────
+    // "friends" = hai người theo dõi lẫn nhau
+    privacy: {
+      followersVisibility: { type: String, enum: ['everyone', 'friends', 'only_me'], default: 'everyone' },
+      followingVisibility: { type: String, enum: ['everyone', 'friends', 'only_me'], default: 'everyone' },
+      likedVisibility: { type: String, enum: ['everyone', 'only_me'], default: 'only_me' },
+      repostsVisibility: { type: String, enum: ['everyone', 'friends', 'only_me'], default: 'everyone' },
+      commentPermission: { type: String, enum: ['everyone', 'followers', 'friends', 'no_one'], default: 'everyone' },
+      mentionPermission: { type: String, enum: ['everyone', 'following', 'no_one'], default: 'everyone' },
+      allowRepost: { type: Boolean, default: true },
+      // Hiện trong tìm kiếm người dùng và gợi ý tag
+      discoverable: { type: Boolean, default: true },
+    },
   },
   { timestamps: true }
 );

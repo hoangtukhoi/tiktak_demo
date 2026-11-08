@@ -68,7 +68,7 @@ export default function AdminAnalytics() {
       {/* ── 1. Tăng trưởng ── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile label="Người dùng mới" metric={s?.newUsers} />
-        <StatTile label="Người dùng hoạt động" metric={s?.activeUsers} hint="đăng nhập hoặc xem video" />
+        <StatTile label={'Người\u00a0dùng hoạt\u00a0động'} metric={s?.activeUsers} hint="đăng nhập hoặc xem video" />
         <StatTile label="Video mới" metric={s?.newVideos} />
         <StatTile label="Lượt xem" metric={s?.views} />
         <StatTile label="Tương tác" metric={s ? { ...s.likes, value: s.likes.value + s.comments.value } : null} hint={s ? `${fmtNumber(s.likes.value)} thích · ${fmtNumber(s.comments.value)} bình luận` : null} />

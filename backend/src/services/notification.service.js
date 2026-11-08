@@ -17,6 +17,8 @@ const { emitToUser } = require('../sockets/notification.socket');
  * @returns {Promise<Notification>}
  */
 exports.createNotification = async (userId, type, payload) => {
+  // Người đã chặn nhau thì không gửi thông báo cho nhau
+  if (payload?.actorId && (await require('./privacy.service').isBlockedBetween(payload.actorId, userId))) return null;
   const notif = await Notification.create({ userId, type, payload });
   // Emit real-time event to the recipient's socket room
   emitToUser(userId.toString(), 'new_notification', notif);
@@ -86,4 +88,4 @@ exports.markAllAsRead = async (userId) => {
  */
 exports.getUnreadCount = async (userId) => {
   return Notification.countDocuments({ userId, isRead: false });
-};
+};

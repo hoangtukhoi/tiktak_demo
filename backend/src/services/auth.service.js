@@ -75,18 +75,86 @@ exports.refreshToken = async (token) => {
 exports.logout = async (userId, refreshToken) => {
   await User.findByIdAndUpdate(userId, { $pull: { refreshTokens: refreshToken } });
 };
-exports.googleAuth = async (googleId, email, username, avatarUrl) => {
-  let user = await User.findOne({ $or: [{ googleId }, { email }] });
-  if (!user) {
-    let finalUsername = username;
-    const taken = await User.findOne({ username });
-    if (taken) finalUsername = `${username}_${Math.random().toString(36).slice(2, 6)}`;
-    user = await User.create({ googleId, email, username: finalUsername, avatarUrl, isVerified: true });
-  } else if (!user.googleId) {
-    user.googleId = googleId;
-    await user.save({ validateBeforeSave: false });
+// ── Đăng nhập Google ────────────────────────────────────────────────────────
+
+const { RESERVED_USERNAMES } = require('../validators/user.validator');
+
+/** Bỏ dấu tiếng Việt + ký tự lạ → chỉ còn chữ, số, "_" (đúng quy tắc username) */
+const slugify = (s) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .replace(/[^a-zA-Z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_')
+    .toLowerCase();
+
+/**
+ * Tạo username hợp lệ, chưa ai dùng (không phân biệt hoa thường), từ email/tên Google.
+ * VD: "Vũ Lê Hoàng" / vipboy.x555@gmail.com → "vipboy_x555", trùng thì "vipboy_x555_2", ...
+ */
+async function makeUsername(...candidates) {
+  let base = candidates.map(slugify).find((c) => c.length >= 3) || 'user';
+  base = base.slice(0, 24);
+  if (base.length < 3) base = `${base}user`.slice(0, 24);
+  if (RESERVED_USERNAMES.has(base)) base = `${base}_1`;
+  for (let i = 0; i < 20; i += 1) {
+    const name = i === 0 ? base : `${base}_${i < 10 ? i + 1 : crypto.randomBytes(2).toString('hex')}`;
+    // eslint-disable-next-line no-await-in-loop
+    const taken = await User.exists({ username: name }).collation({ locale: 'en', strength: 2 });
+    if (!taken) return name;
   }
+  return `user_${crypto.randomBytes(4).toString('hex')}`;
+}
+exports._makeUsername = makeUsername;
+
+/**
+ * Đăng nhập / đăng ký bằng tài khoản Google (profile từ passport-google-oauth20).
+ * - Đã từng đăng nhập Google → dùng lại tài khoản đó.
+ * - Email đã có tài khoản thường → liên kết Google vào tài khoản đó (chỉ khi Google xác nhận email).
+ * - Chưa có → tạo tài khoản mới (không có mật khẩu).
+ */
+exports.googleAuth = async (profile) => {
+  const googleId = profile?.id;
+  const emailEntry = profile?.emails?.[0];
+  const email = String(emailEntry?.value || '').trim().toLowerCase();
+  const emailVerified = emailEntry?.verified === true || emailEntry?.verified === 'true' || profile?._json?.email_verified === true;
+  if (!googleId || !email) throw Object.assign(new Error('Google không trả về email'), { statusCode: 400, code: 'no_email' });
+
+  let user = await User.findOne({ googleId });
+  if (!user) {
+    const byEmail = await User.findOne({ email });
+    if (byEmail) {
+      // Chỉ liên kết khi Google đã xác minh email, tránh chiếm tài khoản bằng email giả
+      if (!emailVerified) throw Object.assign(new Error('Email Google chưa được xác minh'), { statusCode: 409, code: 'email_unverified' });
+      if (byEmail.googleId && byEmail.googleId !== googleId) {
+        throw Object.assign(new Error('Email này đã liên kết với tài khoản Google khác'), { statusCode: 409, code: 'email_linked' });
+      }
+      await User.updateOne({ _id: byEmail._id }, { $set: { googleId } });
+      user = byEmail;
+    } else {
+      const avatarUrl = profile.photos?.[0]?.value || null;
+      const displayName = String(profile.displayName || '').trim().slice(0, 30);
+      for (let attempt = 0; attempt < 3 && !user; attempt += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const username = await makeUsername(email.split('@')[0], displayName);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          user = await User.create({ googleId, email, username, displayName, avatarUrl });
+        } catch (err) {
+          if (err.code !== 11000) throw err;
+          // Trùng email do 2 request cùng lúc → lấy tài khoản vừa tạo; trùng username → thử tên khác
+          // eslint-disable-next-line no-await-in-loop
+          if (err.keyPattern?.email) user = await User.findOne({ email });
+        }
+      }
+      if (!user) throw Object.assign(new Error('Không tạo được tài khoản'), { statusCode: 500 });
+    }
+  }
+
+  if (user.bannedAt) throw Object.assign(new Error('Tài khoản đã bị khoá'), { statusCode: 403, code: 'banned' });
   const tokens = generateTokens(user._id, user.role);
-  await User.findByIdAndUpdate(user._id, { $push: { refreshTokens: tokens.refreshToken } });
+  await addSession(user._id, tokens.refreshToken, { lastLoginAt: new Date() });
   return { user, ...tokens };
-};
+};

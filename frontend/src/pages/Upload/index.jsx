@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Check, Music2, RotateCw, X } from 'lucide-react';
+import { Check, Music2, RotateCw, Upload as UploadIcon, Video, X } from 'lucide-react';
 import VideoUploader from '../../components/video/VideoUploader';
+import VideoRecorder from '../../components/video/VideoRecorder';
 import Button from '../../components/common/Button';
 import Avatar from '../../components/common/Avatar';
+import MentionInput from '../../components/common/MentionInput';
 import useAuth from '../../hooks/useAuth';
 import { createVideo, getProgressSSE, getVideo, uploadVideoFile } from '../../api/video.api';
 import { getSupportedLanguages, requestDubbing } from '../../api/dubbing.api';
@@ -84,6 +86,7 @@ const Toggle = forwardRef(function Toggle({ label, hint, ...props }, ref) {
 export default function Upload() {
   const { user } = useAuth();
   const [file, setFile] = useState(null);
+  const [source, setSource] = useState('file'); // file | camera
   const [phase, setPhase] = useState('idle'); // idle | uploading | processing | done | failed
   const [pct, setPct] = useState(0);
   const [detail, setDetail] = useState('');
@@ -91,7 +94,7 @@ export default function Upload() {
   const [langs, setLangs] = useState([]);
   const [dubLangs, setDubLangs] = useState([]);
   const cleanup = useRef(() => {});
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({ defaultValues: { allowComment: true, isPrivate: false } });
+  const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm({ defaultValues: { allowComment: true, isPrivate: false } });
 
   const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => url && URL.revokeObjectURL(url), [url]);
@@ -99,6 +102,8 @@ export default function Upload() {
   useEffect(() => () => cleanup.current(), []);
 
   const title = watch('title') || '';
+  const description = watch('description') || '';
+  useEffect(() => { register('description'); }, [register]);
   const tags = parseHashtags(watch('hashtags'));
 
   const finish = (ok, id) => {
@@ -180,7 +185,17 @@ export default function Upload() {
       <AnimatePresence mode="wait">
         {!file ? (
           <motion.div key="drop" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
-            <VideoUploader onFile={setFile} />
+            <div className="mb-5 flex w-max gap-1 rounded-full bg-ink-800 p-1" role="tablist">
+              {[['file', UploadIcon, 'Tải file lên'], ['camera', Video, 'Quay video']].map(([k, Icon, label]) => (
+                <button key={k} type="button" role="tab" aria-selected={source === k} onClick={() => setSource(k)} className="relative rounded-full px-5 py-2 text-sm font-bold">
+                  <span className={`absolute inset-0 rounded-full bg-paper transition-opacity duration-200 ${source === k ? 'opacity-100' : 'opacity-0'}`} />
+                  <span className={`relative flex items-center gap-2 ${source === k ? 'text-ink' : 'text-paper-dim'}`}><Icon size={16} /> {label}</span>
+                </button>
+              ))}
+            </div>
+            {source === 'camera'
+              ? <VideoRecorder onFile={setFile} onCancel={() => setSource('file')} />
+              : <VideoUploader onFile={setFile} />}
           </motion.div>
         ) : (
           <motion.div key="form" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid gap-10 lg:grid-cols-[1fr_300px]">
@@ -216,8 +231,11 @@ export default function Upload() {
                     {errors.title && <span className="mt-1.5 block text-sm font-semibold text-coral">{errors.title.message}</span>}
                   </label>
                   <label className="block">
-                    <span className="label">Mô tả</span>
-                    <textarea className="input mt-2 min-h-[100px] resize-y" maxLength={2000} placeholder="Kể thêm về video (không bắt buộc)" {...register('description')} />
+                    <span className="label flex justify-between">Mô tả <span className="normal-case tracking-normal">gõ @ để tag bạn bè</span></span>
+                    <div className="mt-2">
+                      <MentionInput as="textarea" placement="bottom" value={description} onChange={(v) => setValue('description', v)}
+                        className="input min-h-[100px] resize-y" maxLength={2000} placeholder="Kể thêm về video, tag @ban_be (không bắt buộc)" />
+                    </div>
                   </label>
                   <label className="block">
                     <span className="label">Hashtag</span>

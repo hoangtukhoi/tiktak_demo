@@ -7,10 +7,13 @@ import useAuth from '../../hooks/useAuth';
 import { createComment, deleteComment, getComments } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 
-export default function CommentList({ videoId, allowComment = true, onCountChange }) {
-  const { user, isAuthenticated, requireAuth } = useAuth();
+export default function CommentList({ videoId, videoOwnerId, allowComment = true, policy, onCountChange }) {
+  const { user, isAuthenticated, isAdmin, requireAuth } = useAuth();
   const [comments, setComments] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
+  // Tác giả giới hạn ai được bình luận (quyền riêng tư). Feed chưa biết trước → biết khi server từ chối.
+  const [denied, setDenied] = useState(policy && !policy.allowed ? policy.reason : null);
+  useEffect(() => setDenied(policy && !policy.allowed ? policy.reason : null), [policy, videoId]);
 
   useEffect(() => {
     let alive = true;
@@ -25,20 +28,29 @@ export default function CommentList({ videoId, allowComment = true, onCountChang
       const c = await createComment(videoId, text, replyTo?._id);
       // backend chưa populate userId -> gắn user hiện tại để hiển thị ngay
       const withUser = { ...c, user: typeof c.userId === 'object' ? c.user : user, createdAt: c.createdAt || new Date().toISOString() };
+      const visible = c.moderationStatus === 'approved';
       if (replyTo) {
-        setComments((cs) => cs.map((x) => (x._id === replyTo._id ? { ...x, replyCount: x.replyCount + 1 } : x)));
+        if (visible) setComments((cs) => cs.map((x) => (x._id === replyTo._id ? { ...x, replyCount: x.replyCount + 1 } : x)));
         setReplyTo(null);
       } else setComments((cs) => [withUser, ...(cs || [])]);
-      onCountChange?.(1);
+      if (visible) onCountChange?.(1);
+      // Bộ kiểm duyệt tự động giữ lại bình luận → báo cho người viết biết
+      if (c.moderationStatus === 'pending') toast('Bình luận đang chờ duyệt — chỉ bạn thấy cho tới khi được duyệt', { icon: '⏳', duration: 4000 });
+      if (c.moderationStatus === 'rejected') toast.error('Bình luận có thể vi phạm tiêu chuẩn cộng đồng nên đã bị ẩn');
     } catch (e) {
+      if (e.response?.status === 403) setDenied(errMsg(e));
       toast.error(errMsg(e, 'Không gửi được bình luận'));
       throw e;
     }
   };
 
-  const remove = async (c) => {
-    setComments((cs) => cs.filter((x) => x._id !== c._id));
-    onCountChange?.(-1);
+  // Tác giả, chủ video và admin được xoá bình luận
+  const canDelete = (c) => Boolean(user && (c.user?._id === user._id || videoOwnerId === user._id || isAdmin));
+
+  const remove = async (c, { isReply = false } = {}) => {
+    if (!isReply) setComments((cs) => cs.filter((x) => x._id !== c._id));
+    // Bình luận chờ duyệt / bị ẩn chưa từng được tính vào tổng
+    if (c.moderationStatus === 'approved') onCountChange?.(-1);
     try { await deleteComment(c._id); } catch (e) { toast.error(errMsg(e)); }
   };
 
@@ -55,7 +67,7 @@ export default function CommentList({ videoId, allowComment = true, onCountChang
           <ul className="divide-y divide-ink-700">
             <AnimatePresence initial={false}>
               {comments.map((c) => (
-                <CommentItem key={c._id} comment={c} canDelete={user && c.user?._id === user._id} onDelete={remove} onReply={setReplyTo} requireAuth={requireAuth} />
+                <CommentItem key={c._id} comment={c} canDelete={canDelete(c)} canDeleteReply={canDelete} onDelete={remove} onReply={setReplyTo} requireAuth={requireAuth} />
               ))}
             </AnimatePresence>
           </ul>
@@ -70,7 +82,9 @@ export default function CommentList({ videoId, allowComment = true, onCountChang
         )}
       </div>
       <div className="sticky bottom-0 pb-1">
-        {allowComment ? (
+        {allowComment && denied ? (
+          <p className="flex items-center justify-center gap-2 border-t border-ink-600 py-4 text-center text-sm text-paper-dim">🔒 {denied}</p>
+        ) : allowComment ? (
           <CommentInput user={user} disabled={!isAuthenticated} onSubmit={submit} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         ) : (
           <p className="border-t border-ink-600 py-4 text-center text-sm text-paper-dim">Tác giả đã tắt bình luận cho video này.</p>

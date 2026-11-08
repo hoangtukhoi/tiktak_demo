@@ -206,6 +206,13 @@ async function processTranscodeJob(job) {
           message: `Video "${video.title}" của bạn đã xử lý xong và sẵn sàng hiển thị!`,
         })
         .catch(() => {});
+      // Báo cho những người được tag trong mô tả (chỉ khi video công khai)
+      const readyVideo = await Video.findById(videoId).lean();
+      if (readyVideo) {
+        await require('../services/video.service')
+          .notifyVideoMentions(readyVideo)
+          .catch((err) => console.warn('[transcode] mention notify failed:', err.message));
+      }
     }
 
     return { videoId, status: 'ready', url: updates.hlsUrl };

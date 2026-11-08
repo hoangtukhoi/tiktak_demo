@@ -1,24 +1,60 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { BarChart3, Camera, Crop, Globe, ImagePlus, Link2, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { BarChart3, Ban, Bookmark, Camera, Crop, Globe, Grid3x3, Heart, ImagePlus, Link2, Lock, MoreHorizontal, Pencil, Play, Plus, Repeat2, Shield, Trash2 } from 'lucide-react';
 import Avatar from '../../components/common/Avatar';
 import Button from '../../components/common/Button';
 import Modal from '../../components/common/Modal';
 import AvatarCropper from '../../components/profile/AvatarCropper';
+import FollowListSheet from '../../components/profile/FollowListSheet';
+import FollowButton from '../../components/common/FollowButton';
 import { VideoTile } from '../../components/video/VideoCard';
 import useAuth from '../../hooks/useAuth';
 import { getProfile, updateProfile, uploadAvatar } from '../../api/auth.api';
-import { deleteVideo, getUserVideos } from '../../api/video.api';
+import { deleteVideo, getLikedVideos, getSavedVideos, getUserReposts, getUserVideos, togglePinVideo } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
+import { blockUser, getUserLiked, unblockUser } from '../../api/user.api';
 import { formatCount } from '../../utils/format';
 
-function Stat({ value, label }) {
-  return (
-    <div>
+/** Ô số liệu; có onClick thì bấm được (mở danh sách), locked = chủ tài khoản đã ẩn */
+function Stat({ value, label, onClick, locked }) {
+  const body = (
+    <>
       <p className="font-mono text-2xl font-bold tracking-tight">{formatCount(value)}</p>
-      <p className="text-sm text-paper-dim">{label}</p>
+      <p className="flex items-center gap-1 text-sm text-paper-dim">{label}{locked && <Lock size={12} aria-label="Đã ẩn" />}</p>
+    </>
+  );
+  if (!onClick) return <div>{body}</div>;
+  return (
+    <button onClick={onClick} className="-m-2 rounded-2xl p-2 text-left transition hover:bg-ink-800" aria-label={`Xem ${label.toLowerCase()}`}>
+      {body}
+    </button>
+  );
+}
+
+/** Menu "⋯" trên hồ sơ người khác: sao chép link, chặn / bỏ chặn */
+function MoreMenu({ user, onCopy, onBlockToggle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const h = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    document.addEventListener('pointerdown', h);
+    return () => document.removeEventListener('pointerdown', h);
+  }, [open]);
+  const item = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-ink-700';
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen((o) => !o)} className="btn-ghost !px-3" aria-label="Tuỳ chọn khác" aria-expanded={open}><MoreHorizontal size={18} /></button>
+      {open && (
+        <div className="absolute right-0 top-12 z-30 w-56 rounded-2xl border border-ink-600 bg-ink-800 p-1.5 shadow-2xl shadow-black/50" onClick={() => setOpen(false)}>
+          <button onClick={onCopy} className={item}><Link2 size={17} /> Sao chép liên kết</button>
+          <button onClick={onBlockToggle} className={`${item} ${user.isBlocked ? '' : 'text-coral'}`}>
+            <Ban size={17} /> {user.isBlocked ? 'Bỏ chặn' : 'Chặn'} @{user.username}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -270,15 +306,105 @@ function EditProfile({ open, onClose, user, onSaved }) {
   );
 }
 
+/**
+ * Lưới video cho các tab phụ (Đăng lại / Đã tim / Đã lưu), phân trang "Xem thêm".
+ * load(cursor) → { videos, nextCursor }; empty = { icon, title, text }
+ */
+function VideoListTab({ load, empty }) {
+  const [videos, setVideos] = useState(null);
+  const [next, setNext] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setVideos(null);
+    load().then((r) => { if (alive) { setVideos(r.videos); setNext(r.nextCursor); } })
+      .catch((e) => { if (alive) { setVideos([]); toast.error(errMsg(e)); } });
+    return () => { alive = false; };
+  }, [load]);
+
+  const more = async () => {
+    setLoadingMore(true);
+    try {
+      const r = await load(next);
+      setVideos((vs) => [...vs, ...r.videos.filter((v) => !vs.some((x) => x._id === v._id))]);
+      setNext(r.nextCursor);
+    } catch (e) { toast.error(errMsg(e)); }
+    setLoadingMore(false);
+  };
+
+  if (videos === null) {
+    return <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-2xl" />)}</div>;
+  }
+  if (!videos.length) {
+    const Icon = empty.icon;
+    return (
+      <div className="card grid place-items-center px-6 py-16 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-ink-700 text-lime"><Icon size={26} /></span>
+        <p className="mt-4 text-2xl font-extrabold">{empty.title}</p>
+        <p className="mt-2 max-w-sm text-paper-dim">{empty.text}</p>
+        {empty.cta && <Link to="/" className="btn mt-6">Lướt video</Link>}
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} from="profile" />)}
+      </div>
+      {next && (
+        <div className="mt-6 text-center">
+          <button onClick={more} disabled={loadingMore} className="btn-ghost">{loadingMore ? 'Đang tải…' : 'Xem thêm'}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Profile() {
   const { username } = useParams();
   const navigate = useNavigate();
-  const { user: me, setUser } = useAuth();
+  const { user: me, isAdmin, setUser } = useAuth();
   const [user, setProfile] = useState(null);
   const [videos, setVideos] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState('videos'); // videos | reposts | liked | saved
   const isMe = me?.username === username;
+  const loadReposts = useCallback((cursor) => getUserReposts(username, cursor), [username]);
+  const loadTheirLiked = useCallback((cursor) => getUserLiked(username, cursor), [username]);
+  const [list, setList] = useState(null); // 'followers' | 'following' | null
+  const { isAuthenticated, requireAuth } = useAuth();
+
+  useEffect(() => { setTab('videos'); setList(null); }, [username]);
+
+  const bumpCount = (key, delta) => setProfile((p) => ({ ...p, [key]: Math.max(0, (p?.[key] ?? 0) + delta) }));
+  const openList = (k) => setList(k);
+
+  const toggleBlock = async () => {
+    if (!requireAuth('Đăng nhập để chặn người dùng')) return;
+    if (!user.isBlocked && !confirm(`Chặn @${user.username}?\n\nHai bạn sẽ tự bỏ theo dõi nhau. @${user.username} không xem được hồ sơ, video của bạn, không bình luận, tag hay nhắn tới bạn được. Họ không được thông báo.`)) return;
+    try {
+      if (user.isBlocked) {
+        await unblockUser(user.username);
+        setProfile((p) => ({ ...p, isBlocked: false }));
+        toast(`Đã bỏ chặn @${user.username}`);
+        getUserVideos(user._id).then(setVideos).catch(() => {});
+      } else {
+        await blockUser(user.username);
+        setProfile((p) => ({
+          ...p,
+          isBlocked: true,
+          isFollowing: false,
+          followsYou: false,
+          isFriend: false,
+          followerCount: Math.max(0, p.followerCount - (p.isFollowing ? 1 : 0)),
+          followingCount: Math.max(0, p.followingCount - (p.followsYou ? 1 : 0)),
+        }));
+        toast(`Đã chặn @${user.username}`);
+      }
+    } catch (e) { toast.error(errMsg(e)); }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -299,9 +425,26 @@ export default function Profile() {
     try { await deleteVideo(v._id); toast('Đã xoá video'); } catch (e) { toast.error(errMsg(e)); }
   };
 
+  // Ghim / bỏ ghim → sắp xếp lại: video ghim (ghim sau đứng trước) lên đầu, còn lại theo thứ tự cũ
+  const pin = async (v) => {
+    try {
+      const r = await togglePinVideo(v._id);
+      setVideos((vs) => {
+        const next = vs.map((x) => (x._id === v._id ? { ...x, pinnedAt: r.pinnedAt } : x));
+        const pinned = next.filter((x) => x.pinnedAt).sort((a, b) => new Date(b.pinnedAt) - new Date(a.pinnedAt));
+        const rest = next.filter((x) => !x.pinnedAt).sort((a, b) => (a._id < b._id ? 1 : -1));
+        return [...pinned, ...rest];
+      });
+      toast(r.pinned ? 'Đã ghim lên đầu hồ sơ' : 'Đã bỏ ghim', { icon: '📌' });
+    } catch (e) { toast.error(errMsg(e)); }
+  };
+
   const copyLink = async () => {
     try { await navigator.clipboard.writeText(location.href); toast('Đã sao chép liên kết hồ sơ', { icon: '🔗' }); } catch { /* bỏ qua */ }
   };
+
+  // Admin không có trang hồ sơ cá nhân như người dùng thường
+  if (isMe && isAdmin) return <Navigate to="/admin" replace />;
 
   if (notFound) {
     return (
@@ -315,7 +458,9 @@ export default function Profile() {
     );
   }
 
-  const likes = (videos || []).reduce((a, v) => a + v.likeCount, 0);
+  const likes = user?.totalLikes ?? (videos || []).reduce((a, v) => a + v.likeCount, 0);
+  const access = user?.access || { followers: true, following: true, liked: isMe, reposts: true };
+  const blocked = Boolean(user?.isBlocked);
   const cover = videos?.find((v) => v.thumbnailUrl)?.thumbnailUrl;
 
   return (
@@ -345,29 +490,75 @@ export default function Profile() {
             <><span className="skeleton block h-10 w-56 rounded-xl" /><span className="skeleton mt-3 block h-4 w-72 rounded" /></>
           )}
         </div>
-        <div className="flex gap-2 pb-1">
+        {/* Điện thoại: hàng nút xuống dòng riêng để không ép cột tên */}
+        <div className="flex basis-full flex-wrap gap-2 pb-1 sm:basis-auto">
           {isMe && <button onClick={() => setEditing(true)} className="btn-ghost"><Pencil size={16} /> Sửa hồ sơ</button>}
           {isMe && <Link to="/analytics" className="btn-ghost"><BarChart3 size={16} /> Phân tích</Link>}
-          <button onClick={copyLink} className="btn-ghost !px-3" aria-label="Sao chép liên kết"><Link2 size={18} /></button>
+          {isMe && <Link to="/settings/privacy" className="btn-ghost !px-3" aria-label="Quyền riêng tư" title="Quyền riêng tư"><Shield size={18} /></Link>}
+          {!isMe && user && !blocked && (
+            <FollowButton user={user} isFollowing={user.isFollowing} followsYou={user.followsYou}
+              onChange={(f) => setProfile((p) => ({ ...p, isFollowing: f, isFriend: f && p.followsYou, followerCount: Math.max(0, p.followerCount + (f ? 1 : -1)) }))} />
+          )}
+          {isMe ? (
+            <button onClick={copyLink} className="btn-ghost !px-3" aria-label="Sao chép liên kết"><Link2 size={18} /></button>
+          ) : user && (isAuthenticated ? <MoreMenu user={user} onCopy={copyLink} onBlockToggle={toggleBlock} /> : (
+            <button onClick={copyLink} className="btn-ghost !px-3" aria-label="Sao chép liên kết"><Link2 size={18} /></button>
+          ))}
         </div>
       </div>
 
       <div className="mt-8 flex gap-10 border-b border-ink-600 px-2 pb-6 sm:px-6">
-        <Stat value={user?.followingCount ?? 0} label="Đang theo dõi" />
-        <Stat value={user?.followerCount ?? 0} label="Người theo dõi" />
+        <Stat value={user?.followingCount ?? 0} label="Đang theo dõi" locked={!access.following && !isMe} onClick={user && !blocked ? () => openList('following') : undefined} />
+        <Stat value={user?.followerCount ?? 0} label="Người theo dõi" locked={!access.followers && !isMe} onClick={user && !blocked ? () => openList('followers') : undefined} />
         <Stat value={likes} label="Lượt thích" />
       </div>
 
-      <div className="mb-4 mt-8 flex items-baseline justify-between">
-        <h2 className="text-2xl font-extrabold">Video <span className="font-mono text-base text-paper-mute">{videos?.length ?? ''}</span></h2>
-        {isMe && <Link to="/upload" className="btn !py-2"><Plus size={17} /> Đăng video</Link>}
+      {blocked ? (
+        <div className="card mt-8 grid place-items-center px-6 py-14 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-coral/15 text-coral"><Ban size={26} /></span>
+          <p className="mt-4 text-2xl font-extrabold">Bạn đã chặn @{username}</p>
+          <p className="mt-2 max-w-sm text-paper-dim">Bạn sẽ không thấy video, bình luận của họ và họ không thể tương tác với bạn.</p>
+          <button onClick={toggleBlock} className="btn-ghost mt-6">Bỏ chặn</button>
+        </div>
+      ) : (<>
+      <div className="mb-4 mt-8 flex items-center justify-between gap-3">
+        <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-full bg-ink-800 p-1" role="tablist">
+          {[
+            ['videos', Grid3x3, 'Video', videos?.length],
+            (isMe || access.reposts) && ['reposts', Repeat2, 'Đăng lại'],
+            (isMe || access.liked) && ['liked', Heart, 'Đã tim', null, isMe && user?.privacy?.likedVisibility !== 'everyone'],
+            isMe && ['saved', Bookmark, 'Đã lưu', null, true],
+          ].filter(Boolean).map(([k, Icon, label, count, priv]) => (
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="relative shrink-0 rounded-full px-4 py-2 text-sm font-bold">
+              <span className={`absolute inset-0 rounded-full bg-paper transition-opacity duration-200 ${tab === k ? 'opacity-100' : 'opacity-0'}`} />
+              <span className={`relative flex items-center gap-1.5 ${tab === k ? 'text-ink' : 'text-paper-dim'}`}>
+                <Icon size={15} /> {label}
+                {count != null && <span className="font-mono text-xs opacity-60">{count}</span>}
+                {priv && <Lock size={12} className="opacity-60" aria-label="Chỉ mình bạn thấy" />}
+              </span>
+            </button>
+          ))}
+        </div>
+        {isMe && <Link to="/upload" className="btn hidden shrink-0 !py-2 sm:inline-flex"><Plus size={17} /> Đăng video</Link>}
       </div>
 
-      {videos === null ? (
+      {tab === 'reposts' ? (
+        <VideoListTab key={`reposts-${username}`} load={loadReposts}
+          empty={{ icon: Repeat2, title: 'Chưa đăng lại video nào', text: isMe ? 'Bấm Chia sẻ → Đăng lại ở video bạn thích để người theo dõi cùng xem.' : `@${username} chưa đăng lại video nào.` }} />
+      ) : !isMe && tab === 'liked' ? (
+        <VideoListTab key={`liked-${username}`} load={loadTheirLiked}
+          empty={{ icon: Heart, title: 'Chưa thả tim video nào', text: `@${username} chưa thả tim video nào.` }} />
+      ) : isMe && tab === 'liked' ? (
+        <VideoListTab key="liked" load={getLikedVideos}
+          empty={{ icon: Heart, title: 'Chưa thả tim video nào', text: 'Video bạn thả tim sẽ nằm ở đây. Chỉ bạn nhìn thấy danh sách này.', cta: true }} />
+      ) : isMe && tab === 'saved' ? (
+        <VideoListTab key="saved" load={getSavedVideos}
+          empty={{ icon: Bookmark, title: 'Chưa lưu video nào', text: 'Bấm biểu tượng lưu bên cạnh video để xem lại sau. Chỉ bạn nhìn thấy danh sách này.', cta: true }} />
+      ) : videos === null ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-2xl" />)}</div>
       ) : videos.length ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe ? remove : undefined} from="profile" />)}
+          {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe ? remove : undefined} onPin={isMe ? pin : undefined} from="profile" />)}
         </div>
       ) : (
         <div className="card grid place-items-center px-6 py-16 text-center">
@@ -375,6 +566,12 @@ export default function Profile() {
           <p className="mt-2 text-paper-dim">{isMe ? 'Đăng một clip ngắn, AI sẽ lo phần dịch sang 10 ngôn ngữ.' : `@${username} chưa đăng gì.`}</p>
           {isMe && <Link to="/upload" className="btn mt-6"><Plus size={17} /> Tải lên</Link>}
         </div>
+      )}
+      </>)}
+
+      {user && (
+        <FollowListSheet profile={user} isMe={isMe} open={Boolean(list)} tab={list || 'followers'} onTab={setList}
+          onClose={() => setList(null)} onCountChange={bumpCount} />
       )}
 
       {isMe && (

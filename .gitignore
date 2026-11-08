@@ -54,3 +54,12 @@ minio_data/
 *.p12
 
 .graphify-out/
+# Model kiểm duyệt bình luận (file lớn, không commit) — giữ lại README hướng dẫn
+ai-service/moderation_model/*
+!ai-service/moderation_model/README.md
+
+# Báo cáo độ phủ test
+coverage/
+
+# Tài khoản bot test (npm run bot)
+.bot-accounts.json

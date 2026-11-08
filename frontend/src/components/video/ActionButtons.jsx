@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Heart, Languages, MessageCircle, Share2 } from 'lucide-react';
+import { Bookmark, Heart, Languages, MessageCircle, Share2 } from 'lucide-react';
 import Avatar from '../common/Avatar';
 import { formatCount } from '../../utils/format';
 import { LANG_FLAGS } from '../../utils/constants';
@@ -17,12 +17,12 @@ function Count({ value }) {
   );
 }
 
-function Action({ icon, label, onClick, active, children }) {
+function Action({ icon, label, onClick, active, activeClass = 'text-coral', children }) {
   return (
-    <button onClick={onClick} aria-label={label} className="group flex flex-col items-center gap-1 text-white sm:text-paper">
+    <button onClick={onClick} aria-label={label} aria-pressed={active === undefined ? undefined : !!active} className="group flex flex-col items-center gap-1 text-white sm:text-paper">
       <motion.span
         whileTap={{ scale: 0.82 }}
-        className={`relative grid h-12 w-12 place-items-center rounded-full bg-black/35 backdrop-blur-md transition-colors duration-300 sm:bg-ink-700 sm:group-hover:bg-ink-600 ${active ? 'text-coral' : ''}`}
+        className={`relative grid h-12 w-12 place-items-center rounded-full bg-black/35 backdrop-blur-md transition-colors duration-300 sm:bg-ink-700 sm:group-hover:bg-ink-600 ${active ? activeClass : ''}`}
       >
         {icon}
         {children}
@@ -31,9 +31,9 @@ function Action({ icon, label, onClick, active, children }) {
   );
 }
 
-export default function ActionButtons({ video, onLike, onComment, onDub, onShare, dubLang }) {
+export default function ActionButtons({ video, onLike, onComment, onSave, onDub, onShare, dubLang }) {
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-3 sm:gap-4">
       <Link to={`/profile/${video.author.username}`} className="mb-1 transition hover:scale-105" aria-label={`Hồ sơ @${video.author.username}`}>
         <Avatar user={video.author} size={46} ring />
       </Link>
@@ -53,6 +53,19 @@ export default function ActionButtons({ video, onLike, onComment, onDub, onShare
         <Action label="Bình luận" onClick={onComment} icon={<MessageCircle size={25} />} />
         <Count value={formatCount(video.commentCount)} />
       </div>
+
+      {onSave && (
+        <div className="flex flex-col items-center gap-1">
+          <Action label={video.isSaved ? 'Bỏ lưu video' : 'Lưu video'} onClick={onSave} active={video.isSaved} activeClass="text-lime"
+            icon={
+              <motion.span key={String(video.isSaved)} initial={video.isSaved ? { scale: 0.4, rotate: -12 } : false} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', damping: 9, stiffness: 400 }}>
+                <Bookmark size={24} fill={video.isSaved ? 'currentColor' : 'none'} strokeWidth={video.isSaved ? 0 : 2} />
+              </motion.span>
+            }
+          />
+          <Count value={formatCount(video.saveCount)} />
+        </div>
+      )}
 
       <div className="flex flex-col items-center gap-1">
         <Action label="Dịch & lồng tiếng" onClick={onDub} icon={<Languages size={24} />}>

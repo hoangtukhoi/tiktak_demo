@@ -14,10 +14,13 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
-from . import stt, translate, tts
+from . import moderation, stt, translate, tts
 from .config import get_settings
 from .schemas import (
     HealthResponse,
+    ModerateRequest,
+    ModerateResponse,
+    ModerationResult,
     Segment,
     TranscribeRequest,
     TranscribeResponse,
@@ -75,6 +78,9 @@ async def health() -> HealthResponse:
         translator_loaded=translate.is_loaded(),
         tts_engine=settings.tts_engine,
         device=device,
+        moderation_configured=moderation.is_configured(),
+        moderation_loaded=moderation.is_loaded(),
+        moderation_error=moderation.last_error(),
     )
 
 
@@ -149,6 +155,35 @@ async def tts_endpoint(payload: TTSRequest) -> TTSResponse:
         duration=duration,
         voice=voice,
     )
+
+
+@app.post("/moderate/comments", response_model=ModerateResponse, dependencies=[Depends(verify_internal_key)])
+def moderate_comments_endpoint(payload: ModerateRequest) -> ModerateResponse:
+    """Chấm điểm vi phạm cho bình luận. 503 khi chưa cấu hình / nạp được model
+    (backend sẽ tự chuyển sang bộ lọc từ khoá)."""
+    settings = get_settings()
+    if not moderation.is_configured():
+        raise HTTPException(status_code=503, detail="Chưa cấu hình model kiểm duyệt (AI_MODERATION_MODEL_PATH)")
+    if not payload.texts:
+        return ModerateResponse(results=[], model=settings.moderation_model_path)
+    if len(payload.texts) > settings.moderation_max_batch:
+        raise HTTPException(status_code=400, detail=f"Tối đa {settings.moderation_max_batch} bình luận mỗi lần")
+    try:
+        results = moderation.classify(payload.texts)
+    except Exception as exc:
+        logger.exception("Kiểm duyệt bình luận thất bại")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ModerateResponse(results=[ModerationResult(**r) for r in results], model=settings.moderation_model_path)
+
+
+@app.on_event("startup")
+def preload_moderation_model() -> None:
+    # Nạp sẵn model kiểm duyệt để bình luận đầu tiên không phải chờ (lỗi thì chỉ ghi log)
+    if moderation.is_configured():
+        try:
+            moderation.ensure_loaded()
+        except Exception as exc:
+            logger.warning("Không nạp được model kiểm duyệt: %s", exc)
 
 
 @app.exception_handler(Exception)

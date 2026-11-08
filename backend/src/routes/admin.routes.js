@@ -28,7 +28,13 @@ router.get('/videos', adminController.getVideos);
 router.delete('/videos/:id', adminController.removeVideo);
 router.post('/videos/:id/approve', adminController.approveVideo);
 
+// ── Reports & comment moderation ──────────────────────────────────────────
+router.get('/reports', adminController.getReports);
+router.get('/comments', adminController.getModerationComments);
+router.post('/comments/:id/approve', adminController.approveComment);
+router.post('/comments/:id/reject', adminController.rejectComment);
+
 // ── Audit trail ────────────────────────────────────────────────────────────
 router.get('/audit-logs', adminController.getAuditLogs);
 
-module.exports = router;
+module.exports = router;

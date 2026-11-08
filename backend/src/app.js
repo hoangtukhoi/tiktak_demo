@@ -41,6 +41,8 @@ app.get('/', (req, res) => res.redirect('/test/'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api', apiLimiter, routes);
+// Link chia sẻ ngắn có khung xem trước (Open Graph) cho Facebook/Messenger/Zalo
+app.use('/s', apiLimiter, require('./routes/share.routes'));
 app.use(errorMiddleware);
 
 module.exports = app;
