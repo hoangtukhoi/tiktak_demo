@@ -13,7 +13,7 @@ export const connectSocket = (token) => {
   socket.on('new_notification', (data) => {
     const n = normalizeNotification(data);
     useNotificationStore.getState().addNotification(n);
-    toast(n.actor ? `@${n.actor} ${n.text}` : n.text, { icon: '🔔' });
+    toast(n.actor ? `@${n.actor} ${n.text}` : n.text);
   });
   socket.on('connect_error', (e) => console.warn('[socket]', e.message));
 };

@@ -1,166 +1,232 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Link2, Pencil, Plus } from 'lucide-react';
+import { Bookmark, Camera, FileText, Grid3x3, Heart, Link2, Lock, Plus } from 'lucide-react';
 import Avatar from '../../components/common/Avatar';
 import Button from '../../components/common/Button';
 import Modal from '../../components/common/Modal';
+import FollowButton from '../../components/common/FollowButton';
 import { VideoTile } from '../../components/video/VideoCard';
 import useAuth from '../../hooks/useAuth';
-import { getProfile, updateProfile } from '../../api/auth.api';
-import { deleteVideo, getUserVideos } from '../../api/video.api';
+import { getFollowers, getFollowing, getProfile, updateProfile, uploadAvatar } from '../../api/auth.api';
+import { deleteVideo, getDrafts, getLikedVideos, getSavedVideos, getUserVideos } from '../../api/video.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount } from '../../utils/format';
 
-function Stat({ value, label }) {
-  return (
-    <div>
-      <p className="font-mono text-2xl font-bold tracking-tight">{formatCount(value)}</p>
-      <p className="text-sm text-paper-dim">{label}</p>
-    </div>
-  );
-}
-
 function EditProfile({ open, onClose, user, onSaved }) {
-  const [bio, setBio] = useState(user?.bio || '');
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
+  const [bio, setBio] = useState('');
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setBio(user?.bio || ''); setAvatarUrl(user?.avatarUrl || ''); }, [user, open]);
+  const input = useRef(null);
+  useEffect(() => { if (open) { setBio(user?.bio || ''); setFile(null); setPreview(null); } }, [open, user]);
 
-  const save = async (e) => {
-    e.preventDefault();
+  const pick = (f) => {
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return toast.error('Chọn một file ảnh');
+    if (f.size > 5 * 1024 * 1024) return toast.error('Ảnh tối đa 5 MB');
+    setFile(f); setPreview(URL.createObjectURL(f));
+  };
+
+  const save = async () => {
     setSaving(true);
     try {
-      onSaved(await updateProfile({ bio, avatarUrl: avatarUrl || null }));
-      toast('Đã lưu hồ sơ', { icon: '✓' });
+      let u = user;
+      if (file) u = await uploadAvatar(file);
+      if (bio !== (user.bio || '')) u = await updateProfile({ bio });
+      onSaved(u);
+      toast('Đã cập nhật hồ sơ');
       onClose();
-    } catch (err) { toast.error(errMsg(err)); }
+    } catch (e) { toast.error(errMsg(e)); }
     setSaving(false);
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Sửa hồ sơ" variant="center">
-      <form onSubmit={save} className="space-y-4">
-        <div className="flex justify-center py-2"><Avatar user={{ ...user, avatarUrl }} size={88} /></div>
-        <label className="block">
-          <span className="label">Ảnh đại diện (URL)</span>
-          <input className="input mt-2" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://…" />
-        </label>
-        <label className="block">
-          <span className="label flex justify-between">Tiểu sử <span>{bio.length}/150</span></span>
-          <textarea className="input mt-2 min-h-[96px] resize-none" maxLength={150} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Giới thiệu đôi chút về bạn" />
-        </label>
-        <Button type="submit" loading={saving} className="w-full">Lưu</Button>
-      </form>
+    <Modal open={open} onClose={onClose} title="Sửa hồ sơ" variant="dialog" width={480}
+      footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Huỷ</Button><Button loading={saving} onClick={save}>Lưu</Button></div>}>
+      <div className="divide-y divide-line px-5">
+        <div className="flex items-center gap-5 py-5">
+          <span className="w-28 shrink-0 text-sm font-semibold">Ảnh đại diện</span>
+          <button type="button" onClick={() => input.current.click()} className="group relative rounded-full" aria-label="Đổi ảnh đại diện">
+            <Avatar user={{ ...user, avatarUrl: preview || user?.avatarUrl }} size={88} />
+            <span className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"><Camera size={22} /></span>
+          </button>
+          <input ref={input} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files[0])} />
+        </div>
+        <div className="flex gap-5 py-5">
+          <span className="w-28 shrink-0 pt-2.5 text-sm font-semibold">Tên người dùng</span>
+          <div className="flex-1"><input className="input" value={user?.username || ''} disabled /><p className="hint">tiktak.vn/@{user?.username}</p></div>
+        </div>
+        <div className="flex gap-5 py-5">
+          <span className="w-28 shrink-0 pt-2.5 text-sm font-semibold">Tiểu sử</span>
+          <div className="flex-1">
+            <textarea className="input min-h-[96px] resize-none" maxLength={150} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Giới thiệu về bạn" />
+            <p className="hint tabular text-right">{bio.length}/150</p>
+          </div>
+        </div>
+      </div>
     </Modal>
   );
 }
 
+function PeopleDialog({ user, kind, onClose }) {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    if (!kind) return;
+    setList(null);
+    (kind === 'followers' ? getFollowers : getFollowing)(user._id).then(setList).catch(() => setList([]));
+  }, [kind, user?._id]);
+  return (
+    <Modal open={!!kind} onClose={onClose} variant="dialog" width={440} title={kind === 'followers' ? 'Người theo dõi' : 'Đang theo dõi'}>
+      <ul className="px-3 py-2">
+        {list === null ? [0, 1, 2, 3].map((i) => <li key={i} className="flex items-center gap-3 px-2 py-2"><span className="skeleton h-10 w-10 rounded-full" /><span className="skeleton h-4 w-32 rounded" /></li>)
+          : list.length ? list.map((u) => (
+            <li key={u._id} className="flex items-center gap-3 rounded px-2 py-2 hover:bg-surface-2">
+              <Link to={`/profile/${u.username}`} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-3">
+                <Avatar user={u} size={40} />
+                <span className="min-w-0"><span className="block truncate font-semibold">{u.username}</span><span className="block truncate text-sm text-fg-muted">{u.bio || `${formatCount(u.followerCount || 0)} người theo dõi`}</span></span>
+              </Link>
+              <FollowButton user={u} size="sm" />
+            </li>
+          )) : <li className="px-2 py-10 text-center text-fg-muted">Chưa có ai.</li>}
+      </ul>
+    </Modal>
+  );
+}
+
+const EMPTY = {
+  videos: (me) => [me ? 'Chưa có video nào' : 'Chưa có video', me ? 'Video bạn đăng sẽ xuất hiện ở đây.' : 'Người dùng này chưa đăng video công khai.'],
+  liked: () => ['Chưa thích video nào', 'Thả tim video bạn yêu thích để xem lại ở đây.'],
+  saved: () => ['Chưa lưu video nào', 'Bấm biểu tượng lưu trên video để cất vào đây. Chỉ bạn thấy mục này.'],
+  drafts: () => ['Không có bản nháp', 'Chọn "Lưu nháp" khi tải lên để hoàn thiện sau.'],
+};
+
 export default function Profile() {
   const { username } = useParams();
+  const [params, setParams] = useSearchParams();
   const { user: me, setUser } = useAuth();
   const [user, setProfile] = useState(null);
   const [videos, setVideos] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [people, setPeople] = useState(null);
   const isMe = me?.username === username;
+  const tab = params.get('tab') || 'videos';
+  const sort = params.get('sort') || 'latest';
+  const setTab = (t) => setParams(t === 'videos' ? {} : { tab: t }, { replace: true });
 
   useEffect(() => {
     let alive = true;
-    setProfile(null); setVideos(null); setNotFound(false);
-    getProfile(username)
-      .then((u) => {
-        if (!alive) return;
-        setProfile(u);
-        return getUserVideos(u._id).then((v) => alive && setVideos(v));
-      })
-      .catch((e) => { if (!alive) return; if (e.response?.status === 404) setNotFound(true); else { setVideos([]); toast.error(errMsg(e)); } });
+    setProfile(null); setNotFound(false);
+    getProfile(username).then((u) => alive && setProfile(u))
+      .catch((e) => { if (alive) e.response?.status === 404 ? setNotFound(true) : toast.error(errMsg(e)); });
     return () => { alive = false; };
   }, [username]);
 
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    setVideos(null);
+    const load = { videos: () => getUserVideos(user._id, { sort }), liked: () => getLikedVideos(user._id), saved: getSavedVideos, drafts: getDrafts }[tab];
+    (load && !(tab === 'liked' && !isMe) ? load() : Promise.resolve([]))
+      .then((v) => alive && setVideos(v)).catch(() => alive && setVideos([]));
+    return () => { alive = false; };
+  }, [user?._id, tab, sort]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const remove = async (v) => {
-    if (!confirm(`Xoá video “${v.title}”?`)) return;
+    if (!confirm(`Xoá video “${v.title}”? Không thể hoàn tác.`)) return;
     setVideos((vs) => vs.filter((x) => x._id !== v._id));
     try { await deleteVideo(v._id); toast('Đã xoá video'); } catch (e) { toast.error(errMsg(e)); }
   };
-
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(location.href); toast('Đã sao chép liên kết hồ sơ', { icon: '🔗' }); } catch { /* bỏ qua */ }
+    try { await navigator.clipboard.writeText(`${location.origin}/profile/${username}`); toast('Đã sao chép liên kết hồ sơ'); } catch { /* bỏ qua */ }
   };
 
   if (notFound) {
     return (
-      <div className="grid h-full place-items-center text-center">
+      <div className="grid h-full place-items-center px-6 text-center">
         <div>
-          <p className="font-mono text-7xl font-bold text-lime">404</p>
-          <p className="mt-3 text-2xl font-extrabold">Không tìm thấy @{username}</p>
-          <Link to="/search" className="btn mt-6">Tìm người khác</Link>
+          <p className="text-lg font-bold">Không tìm thấy tài khoản này</p>
+          <p className="mt-1 text-fg-muted">@{username} không tồn tại hoặc đã bị xoá.</p>
+          <Link to="/search" className="btn-outline mt-5">Tìm người khác</Link>
         </div>
       </div>
     );
   }
 
-  const likes = (videos || []).reduce((a, v) => a + v.likeCount, 0);
-  const cover = videos?.find((v) => v.thumbnailUrl)?.thumbnailUrl;
+  const tabs = [['videos', 'Video', Grid3x3], ['liked', 'Đã thích', Heart], isMe && ['saved', 'Đã lưu', Bookmark], isMe && ['drafts', 'Bản nháp', FileText]].filter(Boolean);
+  const [emptyTitle, emptyText] = (EMPTY[tab] || EMPTY.videos)(isMe);
+  const likedHidden = tab === 'liked' && !isMe;
 
   return (
-    <div className="mx-auto max-w-[1100px] px-4 pb-16 pt-4 sm:px-8">
-      <div className="grain relative h-44 overflow-hidden rounded-[28px] bg-ink-700 sm:h-56">
-        {cover ? (
-          <img src={cover} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} className="h-full w-full scale-125 object-cover opacity-70 blur-2xl" />
-        ) : (
-          <motion.div className="absolute -right-10 -top-20 h-80 w-80 rounded-full border-[44px] border-lime" animate={{ rotate: 360 }} transition={{ duration: 30, repeat: Infinity, ease: 'linear' }}>
-            <span className="absolute left-4 top-6 h-12 w-12 rounded-full bg-coral" />
-          </motion.div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-ink/70 to-transparent" />
-      </div>
-
-      <div className="relative -mt-14 flex flex-wrap items-end gap-5 px-2 sm:px-6">
-        {user ? <Avatar user={user} size={112} className="rounded-full ring-[6px] ring-ink" /> : <span className="skeleton h-28 w-28 rounded-full ring-[6px] ring-ink" />}
-        <div className="min-w-0 flex-1 pb-1">
+    <div className="mx-auto max-w-[1080px] px-4 pb-16 pt-6 lg:px-8 lg:pt-10">
+      <header className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-7">
+        {user ? <Avatar user={user} size={112} badge /> : <span className="skeleton h-28 w-28 shrink-0 rounded-full" />}
+        <div className="min-w-0 flex-1">
           {user ? (
             <>
-              <h1 className="break-all text-3xl font-extrabold sm:text-5xl">@{user.username}</h1>
-              <p className="mt-1 text-paper-dim">{user.bio || (isMe ? 'Thêm tiểu sử để mọi người biết bạn là ai.' : 'Chưa có tiểu sử.')}</p>
+              <h1 className="break-all text-2xl font-bold">{user.username}</h1>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {isMe ? (
+                  <>
+                    <button onClick={() => setEditing(true)} className="btn-primary">Sửa hồ sơ</button>
+                    <Link to="/upload" className="btn-secondary"><Plus size={16} /> Đăng video</Link>
+                  </>
+                ) : (
+                  <FollowButton user={user} className="min-w-[140px]"
+                    onChange={({ isFollowing, followerCount }) => setProfile((u) => ({ ...u, isFollowing, followerCount: followerCount ?? u.followerCount + (isFollowing ? 1 : -1) }))} />
+                )}
+                <button onClick={copyLink} className="btn-secondary !px-3" aria-label="Sao chép liên kết hồ sơ"><Link2 size={18} /></button>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-base">
+                <button onClick={() => setPeople('following')} className="hover:underline"><b className="tabular font-bold">{formatCount(user.followingCount || 0)}</b> <span className="text-fg-muted">Đang theo dõi</span></button>
+                <button onClick={() => setPeople('followers')} className="hover:underline"><b className="tabular font-bold">{formatCount(user.followerCount || 0)}</b> <span className="text-fg-muted">Người theo dõi</span></button>
+                <span><b className="tabular font-bold">{formatCount(user.likeTotal ?? 0)}</b> <span className="text-fg-muted">Lượt thích</span></span>
+              </div>
+              <p className="mt-3 max-w-prose whitespace-pre-wrap text-base">{user.bio || <span className="text-fg-muted">Chưa có tiểu sử.</span>}</p>
             </>
           ) : (
-            <><span className="skeleton block h-10 w-56 rounded-xl" /><span className="skeleton mt-3 block h-4 w-72 rounded" /></>
+            <><span className="skeleton block h-8 w-48 rounded" /><span className="skeleton mt-4 block h-10 w-40 rounded" /><span className="skeleton mt-4 block h-4 w-72 rounded" /></>
           )}
         </div>
-        <div className="flex gap-2 pb-1">
-          {isMe && <button onClick={() => setEditing(true)} className="btn-ghost"><Pencil size={16} /> Sửa hồ sơ</button>}
-          <button onClick={copyLink} className="btn-ghost !px-3" aria-label="Sao chép liên kết"><Link2 size={18} /></button>
-        </div>
+      </header>
+
+      <nav className="mt-8 flex gap-6 border-b border-line" role="tablist">
+        {tabs.map(([k, label, Icon]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`tab inline-flex items-center gap-1.5 ${tab === k ? 'tab-active' : ''}`}>
+            {k === 'saved' || k === 'drafts' ? <Lock size={14} /> : <Icon size={16} />} {label}
+          </button>
+        ))}
+        {tab === 'videos' && (
+          <div className="ml-auto hidden items-center gap-1 self-center pb-2 sm:flex" role="group" aria-label="Sắp xếp">
+            {[['latest', 'Mới nhất'], ['popular', 'Phổ biến']].map(([k, l]) => (
+              <button key={k} onClick={() => setParams(k === 'latest' ? {} : { sort: k }, { replace: true })} aria-pressed={sort === k}
+                className={`rounded px-3 py-1 text-sm font-semibold ${sort === k ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:text-fg'}`}>{l}</button>
+            ))}
+          </div>
+        )}
+      </nav>
+
+      <div className="mt-5">
+        {likedHidden ? (
+          <div className="py-16 text-center"><Lock className="mx-auto text-fg-subtle" size={32} strokeWidth={1.5} /><p className="mt-3 font-semibold">Video đã thích của người dùng này là riêng tư</p></div>
+        ) : videos === null ? (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">{Array.from({ length: 10 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-md" />)}</div>
+        ) : videos.length ? (
+          <div className="grid grid-cols-3 gap-x-2 gap-y-4 sm:grid-cols-4 lg:grid-cols-5">
+            {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe && (tab === 'videos' || tab === 'drafts') ? remove : undefined} />)}
+          </div>
+        ) : (
+          <div className="py-16 text-center">
+            <p className="text-md font-semibold">{emptyTitle}</p>
+            <p className="mt-1 text-fg-muted">{emptyText}</p>
+            {isMe && tab === 'videos' && <Link to="/upload" className="btn-primary mt-5"><Plus size={16} /> Tải video lên</Link>}
+          </div>
+        )}
       </div>
 
-      <div className="mt-8 flex gap-10 border-b border-ink-600 px-2 pb-6 sm:px-6">
-        <Stat value={user?.followingCount ?? 0} label="Đang theo dõi" />
-        <Stat value={user?.followerCount ?? 0} label="Người theo dõi" />
-        <Stat value={likes} label="Lượt thích" />
-      </div>
-
-      <div className="mb-4 mt-8 flex items-baseline justify-between">
-        <h2 className="text-2xl font-extrabold">Video <span className="font-mono text-base text-paper-mute">{videos?.length ?? ''}</span></h2>
-        {isMe && <Link to="/upload" className="btn !py-2"><Plus size={17} /> Đăng video</Link>}
-      </div>
-
-      {videos === null ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <span key={i} className="skeleton aspect-[3/4] rounded-2xl" />)}</div>
-      ) : videos.length ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {videos.map((v, i) => <VideoTile key={v._id} video={v} index={i} onDelete={isMe ? remove : undefined} />)}
-        </div>
-      ) : (
-        <div className="card grid place-items-center px-6 py-16 text-center">
-          <p className="text-2xl font-extrabold">{isMe ? 'Video đầu tiên của bạn ở đâu?' : 'Chưa có video nào'}</p>
-          <p className="mt-2 text-paper-dim">{isMe ? 'Đăng một clip ngắn, AI sẽ lo phần dịch sang 10 ngôn ngữ.' : `@${username} chưa đăng gì.`}</p>
-          {isMe && <Link to="/upload" className="btn mt-6"><Plus size={17} /> Tải lên</Link>}
-        </div>
-      )}
-
-      {isMe && <EditProfile open={editing} onClose={() => setEditing(false)} user={user} onSaved={(u) => { setProfile(u); setUser(u); }} />}
+      {isMe && user && <EditProfile open={editing} onClose={() => setEditing(false)} user={user} onSaved={(u) => { setProfile((p) => ({ ...p, ...u })); setUser({ ...me, ...u }); }} />}
+      {user && <PeopleDialog user={user} kind={people} onClose={() => setPeople(null)} />}
     </div>
   );
 }

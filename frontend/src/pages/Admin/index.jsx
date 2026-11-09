@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { BadgeCheck } from 'lucide-react';
 import Avatar from '../../components/common/Avatar';
@@ -8,22 +7,22 @@ import * as adminApi from '../../api/admin.api';
 import { errMsg } from '../../api/axiosClient';
 import { formatCount, timeAgo } from '../../utils/format';
 
-const TABS = [['users', 'Người dùng'], ['videos', 'Video'], ['flagged', 'Bị báo cáo'], ['logs', 'Nhật ký']];
+const TABS = [['users', 'Người dùng'], ['videos', 'Video'], ['flagged', 'Chờ duyệt'], ['logs', 'Nhật ký']];
+const MOD = { pending: 'Đang quét', flagged: 'Chờ duyệt', removed: 'Đã gỡ' };
 
-function StatCard({ label, value, accent, i }) {
+function StatCard({ label, value, tone = '' }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-      className={`rounded-3xl p-5 ${accent ? 'bg-lime text-ink' : 'border border-ink-600 bg-ink-800'}`}>
-      <p className={`label ${accent ? '!text-ink/60' : ''}`}>{label}</p>
-      <p className="mt-3 font-mono text-4xl font-bold tracking-tighter">{value ?? '—'}</p>
-    </motion.div>
+    <div className="card p-4">
+      <p className="text-sm text-fg-muted">{label}</p>
+      <p className={`tabular mt-1 text-2xl font-bold ${tone}`}>{value ?? '—'}</p>
+    </div>
   );
 }
 
-const Row = ({ children }) => <tr className="border-b border-ink-700 transition hover:bg-ink-800/70">{children}</tr>;
-const Th = ({ children, className = '' }) => <th className={`label px-3 py-3 text-left font-bold ${className}`}>{children}</th>;
+const Row = ({ children }) => <tr className="border-b border-line transition hover:bg-surface-2/70">{children}</tr>;
+const Th = ({ children, className = '' }) => <th className={`px-3 py-2.5 text-left text-xs font-semibold text-fg-muted ${className}`}>{children}</th>;
 const Td = ({ children, className = '' }) => <td className={`px-3 py-3 align-middle ${className}`}>{children}</td>;
-const Act = ({ danger, ...p }) => <button className={`rounded-full px-3 py-1 text-xs font-bold transition ${danger ? 'text-coral hover:bg-coral/15' : 'hover:bg-ink-600'}`} {...p} />;
+const Act = ({ danger, ...p }) => <button className={`btn-sm btn ${danger ? 'text-danger hover:bg-danger/10' : 'hover:bg-surface-2'}`} {...p} />;
 
 export default function Admin() {
   const [tab, setTab] = useState('users');
@@ -65,23 +64,23 @@ export default function Admin() {
   const rows = data[tab];
   const videoTable = (list) => (
     <table className="w-full min-w-[720px] text-sm">
-      <thead><tr className="border-b border-ink-600"><Th>Video</Th><Th>Tác giả</Th><Th>Trạng thái</Th><Th className="text-right">Lượt xem</Th><Th /></tr></thead>
+      <thead><tr className="border-b border-line"><Th>Video</Th><Th>Tác giả</Th><Th>Trạng thái</Th><Th className="text-right">Lượt xem</Th><Th /></tr></thead>
       <tbody>
         {list.map((v) => (
           <Row key={v._id}>
             <Td>
-              <Link to={`/watch/${v._id}`} className="flex items-center gap-3 hover:text-lime">
-                {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-12 w-9 rounded-lg object-cover" /> : <span className="h-12 w-9 rounded-lg bg-ink-600" />}
+              <Link to={`/watch/${v._id}`} className="flex items-center gap-3 hover:text-brand-text">
+                {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-12 w-9 rounded-sm object-cover" /> : <span className="h-12 w-9 rounded-sm bg-surface-3" />}
                 <span className="line-clamp-2 max-w-[260px] font-semibold">{v.title}</span>
               </Link>
             </Td>
-            <Td className="font-mono text-xs">@{v.author.username}</Td>
+            <Td className="text-fg-muted">{v.author.username}</Td>
             <Td>
-              <span className="font-mono text-xs">{v.status}</span>
-              {v.moderationStatus && v.moderationStatus !== 'approved' && <span className="ml-2 rounded-full bg-coral/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-coral">{v.moderationStatus}</span>}
-              {v.flagReason && <span className="block text-xs text-paper-mute">{v.flagReason}</span>}
+              <span className="text-xs text-fg-muted">{v.status}</span>
+              {v.moderationStatus && v.moderationStatus !== 'approved' && <span className="ml-2 rounded-sm bg-danger/10 px-1.5 py-0.5 text-2xs font-semibold text-danger">{MOD[v.moderationStatus] || v.moderationStatus}</span>}
+              {v.flagReason && <span className="block text-xs text-fg-subtle">{v.flagReason}</span>}
             </Td>
-            <Td className="text-right font-mono">{formatCount(v.viewCount)}</Td>
+            <Td className="tabular text-right">{formatCount(v.viewCount)}</Td>
             <Td className="whitespace-nowrap text-right">
               {v.moderationStatus !== 'approved' && <Act onClick={() => videoAction(v, 'approve')}>Duyệt</Act>}
               <Act danger onClick={() => videoAction(v, 'remove')}>Gỡ</Act>
@@ -93,48 +92,44 @@ export default function Admin() {
   );
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pb-16 pt-6 sm:px-8">
-      <header className="mb-8">
-        <p className="label">Bảng điều khiển</p>
-        <h1 className="mt-2 text-4xl font-extrabold sm:text-5xl">Quản trị</h1>
-      </header>
+    <div className="mx-auto max-w-[1200px] px-4 pb-16 pt-6 lg:px-8 lg:pt-10">
+      <h1 className="hidden text-2xl font-bold lg:block">Quản trị</h1>
 
-      <div className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard i={0} label="Người dùng" value={stats && formatCount(stats.users ?? 0)} accent />
-        <StatCard i={1} label="Video" value={stats && formatCount(stats.videos ?? 0)} />
-        <StatCard i={2} label="Bị báo cáo" value={data.flagged ? data.flagged.length : '—'} />
-        <StatCard i={3} label="Bị khoá" value={data.users ? data.users.filter((u) => u.bannedAt).length : '—'} />
+      <div className="grid grid-cols-2 gap-3 lg:mt-6 lg:grid-cols-4">
+        <StatCard label="Người dùng" value={stats && formatCount(stats.users ?? 0)} />
+        <StatCard label="Video" value={stats && formatCount(stats.videos ?? 0)} />
+        <StatCard label="Chờ duyệt" value={data.flagged ? data.flagged.length : '—'} tone={data.flagged?.length ? 'text-warn' : ''} />
+        <StatCard label="Tài khoản bị khoá" value={data.users ? data.users.filter((u) => u.bannedAt).length : '—'} />
       </div>
 
-      <div className="mb-5 flex gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 sm:w-max">
+      <nav className="no-scrollbar mt-8 flex gap-6 overflow-x-auto border-b border-line" role="tablist">
         {TABS.map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} className="relative shrink-0 rounded-full px-5 py-2 text-sm font-bold">
-            {tab === k && <motion.span layoutId="admin-tab" className="absolute inset-0 rounded-full bg-paper" transition={{ type: 'spring', damping: 30, stiffness: 380 }} />}
-            <span className={`relative ${tab === k ? 'text-ink' : 'text-paper-dim'}`}>{label}</span>
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`tab shrink-0 ${tab === k ? 'tab-active' : ''}`}>
+            {label}{k === 'flagged' && data.flagged?.length > 0 && <span className="tabular ml-1.5 rounded-full bg-warn/15 px-1.5 text-2xs text-warn">{data.flagged.length}</span>}
           </button>
         ))}
-      </div>
+      </nav>
 
-      <div className="card overflow-x-auto p-2">
+      <div className="mt-4 overflow-x-auto">
         {rows == null ? (
-          <div className="space-y-2 p-2">{[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton block h-12 rounded-xl" />)}</div>
+          <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton block h-12 rounded" />)}</div>
         ) : !rows.length ? (
-          <p className="px-6 py-14 text-center text-paper-dim">Không có dữ liệu.</p>
+          <p className="px-6 py-14 text-center text-fg-muted">Không có dữ liệu.</p>
         ) : tab === 'users' ? (
           <table className="w-full min-w-[720px] text-sm">
-            <thead><tr className="border-b border-ink-600"><Th>Người dùng</Th><Th>Vai trò</Th><Th className="text-right">Follower</Th><Th>Trạng thái</Th><Th /></tr></thead>
+            <thead><tr className="border-b border-line"><Th>Người dùng</Th><Th>Vai trò</Th><Th className="text-right">Follower</Th><Th>Trạng thái</Th><Th /></tr></thead>
             <tbody>
               {rows.map((u) => (
                 <Row key={u._id}>
                   <Td>
-                    <Link to={`/profile/${u.username}`} className="flex items-center gap-3 hover:text-lime">
+                    <Link to={`/profile/${u.username}`} className="flex items-center gap-3 hover:text-brand-text">
                       <Avatar user={u} size={34} />
-                      <span><span className="flex items-center gap-1 font-bold">@{u.username}{u.isVerified && <BadgeCheck size={14} className="text-lime" />}</span><span className="font-mono text-xs text-paper-mute">{u.email}</span></span>
+                      <span><span className="flex items-center gap-1 font-semibold">{u.username}{u.isVerified && <BadgeCheck size={14} className="text-brand-text" />}</span><span className="text-xs text-fg-muted">{u.email}</span></span>
                     </Link>
                   </Td>
-                  <Td className="font-mono text-xs uppercase">{u.role}</Td>
-                  <Td className="text-right font-mono">{formatCount(u.followerCount || 0)}</Td>
-                  <Td>{u.bannedAt ? <span className="rounded-full bg-coral/15 px-2.5 py-1 font-mono text-[11px] font-bold text-coral">Khoá · {timeAgo(u.bannedAt)}</span> : <span className="rounded-full bg-lime/15 px-2.5 py-1 font-mono text-[11px] font-bold text-lime">Hoạt động</span>}</Td>
+                  <Td className="text-fg-muted">{u.role === 'admin' ? 'Quản trị' : 'Người dùng'}</Td>
+                  <Td className="tabular text-right">{formatCount(u.followerCount || 0)}</Td>
+                  <Td>{u.bannedAt ? <span className="inline-flex items-center gap-1.5 text-sm text-danger"><span className="h-1.5 w-1.5 rounded-full bg-danger" />Bị khoá · {timeAgo(u.bannedAt)}</span> : <span className="inline-flex items-center gap-1.5 text-sm text-fg-muted"><span className="h-1.5 w-1.5 rounded-full bg-success" />Hoạt động</span>}</Td>
                   <Td className="whitespace-nowrap text-right">
                     {!u.isVerified && <Act onClick={() => patchUser(adminApi.verifyUser, u, 'Đã xác minh')}>Xác minh</Act>}
                     {u.bannedAt
@@ -146,8 +141,8 @@ export default function Admin() {
             </tbody>
           </table>
         ) : tab === 'logs' ? (
-          <ul className="divide-y divide-ink-700 font-mono text-sm">
-            {rows.map((l, i) => <li key={l._id || i} className="flex justify-between gap-4 px-3 py-3"><span>{l.action || l.message || JSON.stringify(l)}</span><span className="text-paper-mute">{timeAgo(l.createdAt)}</span></li>)}
+          <ul className="divide-y divide-line text-sm">
+            {rows.map((l, i) => <li key={l._id || i} className="flex justify-between gap-4 px-3 py-3"><span>{l.action || l.message || JSON.stringify(l)}</span><span className="text-fg-subtle">{timeAgo(l.createdAt)}</span></li>)}
           </ul>
         ) : videoTable(rows)}
       </div>

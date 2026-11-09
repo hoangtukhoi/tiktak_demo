@@ -11,11 +11,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <App />
       <Toaster
         position="top-center"
-        containerStyle={{ top: 72 }}
         toastOptions={{
           duration: 2600,
-          style: { background: '#d9ff3f', color: '#12140a', fontWeight: 700, borderRadius: 999, padding: '10px 18px' },
-          error: { style: { background: '#ff5a47', color: '#fff' } },
+          style: { background: 'rgb(var(--fg))', color: 'rgb(var(--bg))', fontSize: 14, fontWeight: 500, borderRadius: 8, padding: '10px 14px' },
+          error: { iconTheme: { primary: 'rgb(var(--danger))', secondary: 'rgb(var(--bg))' } },
         }}
       />
     </BrowserRouter>

@@ -1,78 +1,55 @@
 import { Link } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Heart, Languages, MessageCircle, Share2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Bookmark, Check, Heart, Languages, MessageCircle, Plus, Share2 } from 'lucide-react';
 import Avatar from '../common/Avatar';
+import useAuth from '../../hooks/useAuth';
 import { formatCount } from '../../utils/format';
 import { LANG_FLAGS } from '../../utils/constants';
 
-function Count({ value }) {
+/**
+ * Cột hành động. overlay=true: nằm trên video (mobile) -> icon trắng, không nền.
+ * overlay=false: bên cạnh khung video (desktop) -> nút tròn theo theme.
+ */
+function Action({ icon, label, count, onClick, active, activeClass, overlay }) {
   return (
-    <span className="relative h-4 overflow-hidden font-mono text-[12px] font-bold">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span key={value} className="block" initial={{ y: 12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -12, opacity: 0 }} transition={{ duration: 0.22 }}>
-          {value}
-        </motion.span>
-      </AnimatePresence>
-    </span>
-  );
-}
-
-function Action({ icon, label, onClick, active, children }) {
-  return (
-    <button onClick={onClick} aria-label={label} className="group flex flex-col items-center gap-1 text-white sm:text-paper">
-      <motion.span
-        whileTap={{ scale: 0.82 }}
-        className={`relative grid h-12 w-12 place-items-center rounded-full bg-black/35 backdrop-blur-md transition-colors duration-300 sm:bg-ink-700 sm:group-hover:bg-ink-600 ${active ? 'text-coral' : ''}`}
-      >
+    <button onClick={onClick} aria-label={label} aria-pressed={active} className="group flex flex-col items-center gap-1">
+      <motion.span whileTap={{ scale: 0.85 }}
+        className={`grid h-12 w-12 place-items-center rounded-full transition-colors duration-150 ${overlay ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,.5)]' : 'bg-surface-2 text-fg group-hover:bg-surface-3'} ${active ? activeClass : ''}`}>
         {icon}
-        {children}
       </motion.span>
+      {count !== undefined && <span className={`tabular text-xs font-semibold ${overlay ? 'text-shadow text-white' : 'text-fg-muted'}`}>{count}</span>}
     </button>
   );
 }
 
-export default function ActionButtons({ video, onLike, onComment, onDub, onShare, dubLang }) {
+export default function ActionButtons({ video, overlay = false, onLike, onComment, onSave, onShare, onDub, onFollow, dubLang }) {
+  const { user } = useAuth();
+  const fill = (on) => (on ? 'currentColor' : 'none');
+  const isMe = user?._id === video.author._id;
+
   return (
-    <div className="flex flex-col items-center gap-4">
-      <Link to={`/profile/${video.author.username}`} className="mb-1 transition hover:scale-105" aria-label={`Hồ sơ @${video.author.username}`}>
-        <Avatar user={video.author} size={46} ring />
-      </Link>
-
-      <div className="flex flex-col items-center gap-1">
-        <Action label="Thích" onClick={onLike} active={video.isLiked}
-          icon={
-            <motion.span key={String(video.isLiked)} initial={video.isLiked ? { scale: 0.4 } : false} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 9, stiffness: 400 }}>
-              <Heart size={26} fill={video.isLiked ? 'currentColor' : 'none'} strokeWidth={video.isLiked ? 0 : 2} />
-            </motion.span>
-          }
-        />
-        <Count value={formatCount(video.likeCount)} />
+    <div className="flex flex-col items-center gap-3">
+      <div className="relative mb-2">
+        <Link to={`/profile/${video.author.username}`} aria-label={`Hồ sơ @${video.author.username}`}>
+          <Avatar user={video.author} size={48} className={overlay ? 'rounded-full ring-2 ring-white' : ''} />
+        </Link>
+        {!isMe && (
+          <button onClick={onFollow} aria-label={video.author.isFollowing ? 'Bỏ theo dõi' : 'Theo dõi'}
+            className={`absolute -bottom-2.5 left-1/2 grid h-6 w-6 -translate-x-1/2 place-items-center rounded-full text-white transition-colors ${video.author.isFollowing ? 'bg-white !text-brand' : 'bg-brand'}`}>
+            {video.author.isFollowing ? <Check size={14} strokeWidth={3} /> : <Plus size={15} strokeWidth={3} />}
+          </button>
+        )}
       </div>
 
-      <div className="flex flex-col items-center gap-1">
-        <Action label="Bình luận" onClick={onComment} icon={<MessageCircle size={25} />} />
-        <Count value={formatCount(video.commentCount)} />
-      </div>
-
-      <div className="flex flex-col items-center gap-1">
-        <Action label="Dịch & lồng tiếng" onClick={onDub} icon={<Languages size={24} />}>
-          {dubLang && (
-            <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -right-1 -top-1 rounded-full bg-lime px-1.5 font-mono text-[10px] font-bold leading-4 text-ink">
-              {LANG_FLAGS[dubLang] || dubLang.toUpperCase()}
-            </motion.span>
-          )}
-        </Action>
-        <span className="font-mono text-[12px] font-bold">Dịch</span>
-      </div>
-
-      <div className="flex flex-col items-center gap-1">
-        <Action label="Chia sẻ" onClick={onShare} icon={<Share2 size={23} />} />
-        <Count value={formatCount(video.shareCount)} />
-      </div>
-
-      <span className="mt-1 grid h-11 w-11 animate-disc place-items-center rounded-full bg-[conic-gradient(#1c1a17,#34312b,#1c1a17,#34312b,#1c1a17)] ring-[6px] ring-black/40 sm:ring-ink-700">
-        <Avatar user={video.author} size={22} />
-      </span>
+      <Action overlay={overlay} label="Thích" onClick={onLike} active={video.isLiked} activeClass="!text-[#FF3B4E]" count={formatCount(video.likeCount)}
+        icon={<motion.span key={String(video.isLiked)} initial={video.isLiked ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, stiffness: 400 }}>
+          <Heart size={26} fill={fill(video.isLiked)} strokeWidth={video.isLiked ? 0 : 1.9} /></motion.span>} />
+      <Action overlay={overlay} label="Bình luận" onClick={onComment} count={formatCount(video.commentCount)} icon={<MessageCircle size={25} strokeWidth={1.9} />} />
+      <Action overlay={overlay} label="Lưu video" onClick={onSave} active={video.isSaved} activeClass="!text-[#F5B800]" count={formatCount(video.saveCount)}
+        icon={<Bookmark size={24} fill={fill(video.isSaved)} strokeWidth={video.isSaved ? 0 : 1.9} />} />
+      <Action overlay={overlay} label="Chia sẻ" onClick={onShare} count={formatCount(video.shareCount)} icon={<Share2 size={23} strokeWidth={1.9} />} />
+      <Action overlay={overlay} label="Dịch và lồng tiếng" onClick={onDub} count={dubLang ? LANG_FLAGS[dubLang] || dubLang.toUpperCase() : 'Dịch'}
+        active={!!dubLang} activeClass={overlay ? '' : '!bg-brand-soft !text-brand-text'} icon={<Languages size={23} strokeWidth={1.9} />} />
     </div>
   );
 }
