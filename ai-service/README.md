@@ -75,7 +75,9 @@ Segment nào đọc dài hơn khoảng thời gian gốc sẽ được tăng t�
 - Chưa có lip-sync (Wav2Lip).
 - Model dịch tải toàn bộ vào RAM, cần khoảng 3 GB cho bản 600M.
 
-##Chạy model hiện tại (local)
+## Chạy model hiện tại (local)
+
+```bash
 from faster_whisper import WhisperModel
 stt = WhisperModel("models/phowhisper-small-ct2", device="cuda", compute_type="float16")  # CPU: device="cpu", compute_type="int8"
 segments, _ = stt.transcribe("video.mp4", language="vi", beam_size=5, vad_filter=True)
@@ -84,3 +86,4 @@ text = " ".join(s.text.strip() for s in segments)
 from transformers import pipeline
 nsfw = pipeline("image-classification", model="models/falconsai-nsfw")
 nsfw("frame.jpg")   # [{'label': 'nsfw', 'score': ...}, {'label': 'normal', ...}]
+```
