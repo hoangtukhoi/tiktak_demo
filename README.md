@@ -338,20 +338,12 @@ Use case trong sơ đồ nhưng **chưa có API**:
 - Chỉnh sửa phụ đề/bản dịch
 - Thống kê lượt xem, tương tác cho chủ video
 
-## Tiến độ
 
-- [x] Xác thực, refresh token xoay vòng, Google OAuth
-- [x] Upload, transcode HLS nhiều mức chất lượng, thumbnail
-- [x] Feed, like, bình luận, follow, thông báo realtime
-- [x] Pipeline dịch và lồng tiếng đầy đủ, có cache và báo tiến trình
-- [x] AI service FastAPI: Whisper, NLLB-200, edge-tts
-- [x] Trang quản trị: số liệu, kiểm duyệt, nhật ký thao tác
-- [ ] Voice cloning giữ đặc trưng giọng gốc
-- [ ] Lip-sync bằng Wav2Lip
-- [ ] Gợi ý nội dung bằng vector search
-- [ ] CDN cho HLS
-- [ ] Ứng dụng di động
 
-## Ghi chú
+## Ghi chú: Chạy model trên backend
 
-Dự án phục vụ mục đích học tập.
+cd ai-service
+$R = "https://github.com/hoangtukhoi/tiktak_demo/releases/download/models-v1"
+curl.exe -L -o phowhisper-small-ct2.zip "$R/phowhisper-small-ct2.zip"
+curl.exe -L -o falconsai-nsfw.zip "$R/falconsai-nsfw.zip"
+Expand-Archive phowhisper-small-ct2.zip models\ ; Expand-Archive falconsai-nsfw.zip models\
