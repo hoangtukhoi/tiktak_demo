@@ -52,3 +52,4 @@ minio_data/
 *.pem
 *.key
 *.p12
+ai-service/models/
