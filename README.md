@@ -340,10 +340,12 @@ Use case trong sơ đồ nhưng **chưa có API**:
 
 
 
-## Ghi chú: Chạy model trên backend
+## Ghi chú: Giải nén model
 
+```bash
 cd ai-service
 $R = "https://github.com/hoangtukhoi/tiktak_demo/releases/download/models-v1"
 curl.exe -L -o phowhisper-small-ct2.zip "$R/phowhisper-small-ct2.zip"
 curl.exe -L -o falconsai-nsfw.zip "$R/falconsai-nsfw.zip"
 Expand-Archive phowhisper-small-ct2.zip models\ ; Expand-Archive falconsai-nsfw.zip models\
+```
