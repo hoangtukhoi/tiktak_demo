@@ -1,35 +1,34 @@
 /** @type {import('tailwindcss').Config} */
+// Màu lấy từ CSS variable (src/index.css) -> đổi theme sáng/tối chỉ bằng class `dark` trên <html>.
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       colors: {
-        ink: { DEFAULT: '#0e0d0c', 900: '#0e0d0c', 800: '#151412', 700: '#1c1a17', 600: '#262420', 500: '#34312b' },
-        paper: { DEFAULT: '#f4efe6', dim: '#a39c8f', mute: '#6f695f' },
-        lime: { DEFAULT: '#d9ff3f', deep: '#b8e000' },
-        coral: '#ff5a47',
+        bg: v('bg'),
+        surface: { DEFAULT: v('surface'), 2: v('surface-2'), 3: v('surface-3') },
+        line: v('line'),
+        fg: { DEFAULT: v('fg'), muted: v('fg-muted'), subtle: v('fg-subtle') },
+        brand: { DEFAULT: v('brand'), hover: v('brand-hover'), text: v('brand-text'), soft: v('brand-soft') },
+        danger: v('danger'),
+        success: v('success'),
+        warn: v('warn'),
       },
-      fontFamily: {
-        sans: ['"Bricolage Grotesque"', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      fontFamily: { sans: ['"Be Vietnam Pro"', 'system-ui', 'sans-serif'] },
+      fontSize: {
+        '2xs': ['11px', '16px'], xs: ['12px', '16px'], sm: ['13px', '18px'], base: ['15px', '22px'],
+        md: ['17px', '24px'], lg: ['20px', '28px'], xl: ['24px', '30px'], '2xl': ['32px', '38px'], '3xl': ['40px', '44px'],
       },
-      letterSpacing: { tightest: '-0.06em' },
-      transitionTimingFunction: {
-        out: 'cubic-bezier(.2,.8,.2,1)',
-        spring: 'cubic-bezier(.3,1.5,.5,1)',
+      borderRadius: { sm: '6px', DEFAULT: '8px', md: '10px', lg: '12px', xl: '16px', '2xl': '20px' },
+      boxShadow: {
+        pop: '0 12px 32px -8px rgb(0 0 0 / .28), 0 0 0 1px rgb(var(--line))',
       },
-      keyframes: {
-        marquee: { to: { transform: 'translateX(-50%)' } },
-        spin: { to: { transform: 'rotate(360deg)' } },
-        shimmer: { to: { backgroundPosition: '-200% 0' } },
-        tick: { '50%': { transform: 'translateX(8px)' } },
-      },
-      animation: {
-        marquee: 'marquee 22s linear infinite',
-        disc: 'spin 5s linear infinite',
-        shimmer: 'shimmer 1.4s linear infinite',
-        tick: 'tick 1.2s steps(1) infinite',
-      },
+      transitionTimingFunction: { out: 'cubic-bezier(.2,.8,.2,1)', spring: 'cubic-bezier(.3,1.5,.5,1)' },
+      keyframes: { shimmer: { to: { backgroundPosition: '-200% 0' } }, marquee: { to: { transform: 'translateX(-50%)' } }, spin: { to: { transform: 'rotate(360deg)' } } },
+      animation: { shimmer: 'shimmer 1.4s linear infinite', marquee: 'marquee 22s linear infinite', disc: 'spin 5s linear infinite' },
     },
   },
   plugins: [],

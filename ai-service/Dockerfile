@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir torch==2.4.1 --index-url https://download.pytorch
     && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
 
 ENV AI_MODEL_CACHE_DIR=/models
 VOLUME ["/models"]

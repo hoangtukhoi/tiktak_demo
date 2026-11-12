@@ -96,11 +96,13 @@ services:
       AI_INTERNAL_KEY: ${INTERNAL_KEY:-internal_secret_key}
       AI_WHISPER_MODEL: ${AI_WHISPER_MODEL:-small}
       AI_MODEL_CACHE_DIR: /models
-      # Model phân loại bình luận: chép vào ai-service/moderation_model/ (xem ai-service/README.md)
+      # Model phân loại bình luận: chép vào ai-service/moderation_model/, hoặc đặt AI_MODERATION_MODEL_PATH=ten-ban/ten-repo để tải từ HuggingFace (xem ai-service/README.md)
       AI_MODERATION_MODEL_PATH: ${AI_MODERATION_MODEL_PATH:-}
       AI_MODERATION_MODEL_TYPE: ${AI_MODERATION_MODEL_TYPE:-auto}
       AI_MODERATION_CLEAN_LABELS: ${AI_MODERATION_CLEAN_LABELS:-clean,normal,non-toxic,ok,label_0,0}
       AI_MODERATION_LABEL_NAMES: ${AI_MODERATION_LABEL_NAMES:-}
+      # Token HuggingFace — chỉ cần khi repo model để private (đặt HF_TOKEN trong file .env cạnh docker-compose.yml)
+      HF_TOKEN: ${HF_TOKEN:-}
     ports:
       - '8002:8002'
     volumes:

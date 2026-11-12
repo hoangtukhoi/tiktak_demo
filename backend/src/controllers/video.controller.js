@@ -121,6 +121,7 @@ exports.recordView = async (req, res) => {
     completed,
     source,
     viewerId: req.user?._id,
+    role: req.user?.role,
   });
   success(res, null, 200, 'View recorded');
 };
@@ -213,6 +214,6 @@ exports.toggleSave = async (req, res) => {
  */
 exports.shareVideo = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return error(res, 'Invalid video id', 400);
-  const r = await videoService.recordShare(req.params.id, { userId: req.user?._id, method: req.body?.method, ip: req.ip });
+  const r = await videoService.recordShare(req.params.id, { userId: req.user?._id, role: req.user?.role, method: req.body?.method, ip: req.ip });
   success(res, r, 200, r.counted ? 'Share recorded' : 'Already shared');
 };

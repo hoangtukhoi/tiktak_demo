@@ -63,6 +63,9 @@ class HealthResponse(BaseModel):
     moderation_configured: bool = False
     moderation_loaded: bool = False
     moderation_error: Optional[str] = None
+    moderation_model: str = ""  # đường dẫn / tên repo model đang dùng
+    moderation_labels: list[str] = Field(default_factory=list)  # nhãn của model (sau khi nạp)
+    moderation_segmenter: str = "none"  # bộ tách từ trước khi chấm (pyvi với model PhoBERT train bằng notebook)
 
 
 class ModerateRequest(BaseModel):

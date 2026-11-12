@@ -81,6 +81,9 @@ async def health() -> HealthResponse:
         moderation_configured=moderation.is_configured(),
         moderation_loaded=moderation.is_loaded(),
         moderation_error=moderation.last_error(),
+        moderation_model=moderation.model_name(),
+        moderation_labels=moderation.labels(),
+        moderation_segmenter=moderation.segmenter(),
     )
 
 
@@ -163,9 +166,9 @@ def moderate_comments_endpoint(payload: ModerateRequest) -> ModerateResponse:
     (backend sẽ tự chuyển sang bộ lọc từ khoá)."""
     settings = get_settings()
     if not moderation.is_configured():
-        raise HTTPException(status_code=503, detail="Chưa cấu hình model kiểm duyệt (AI_MODERATION_MODEL_PATH)")
+        raise HTTPException(status_code=503, detail="Chưa có model kiểm duyệt (chép vào ai-service/moderation_model/ hoặc đặt AI_MODERATION_MODEL_PATH)")
     if not payload.texts:
-        return ModerateResponse(results=[], model=settings.moderation_model_path)
+        return ModerateResponse(results=[], model=moderation.model_name())
     if len(payload.texts) > settings.moderation_max_batch:
         raise HTTPException(status_code=400, detail=f"Tối đa {settings.moderation_max_batch} bình luận mỗi lần")
     try:
@@ -173,7 +176,7 @@ def moderate_comments_endpoint(payload: ModerateRequest) -> ModerateResponse:
     except Exception as exc:
         logger.exception("Kiểm duyệt bình luận thất bại")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return ModerateResponse(results=[ModerationResult(**r) for r in results], model=settings.moderation_model_path)
+    return ModerateResponse(results=[ModerationResult(**r) for r in results], model=moderation.model_name())
 
 
 @app.on_event("startup")

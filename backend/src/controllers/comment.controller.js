@@ -4,6 +4,7 @@
  */
 
 const mongoose = require('mongoose');
+const videoAccess = require('../utils/videoAccess');
 const Comment = require('../models/Comment');
 const Video = require('../models/Video');
 const Like = require('../models/Like');
@@ -24,6 +25,17 @@ const visibleTo = (user) =>
   user ? { $or: [Comment.PUBLIC_FILTER, { userId: user._id }] } : Comment.PUBLIC_FILTER;
 
 /**
+ * Chỉ đọc được bình luận của video mà mình xem được
+ * (video riêng tư / bạn bè / bản nháp / hẹn giờ / đã gỡ → như không tồn tại).
+ */
+async function canReadVideoComments(videoId, user) {
+  const video = await Video.findById(videoId)
+    .select('userId status visibility isPrivate isDraft scheduledAt moderationStatus authorBanned')
+    .lean();
+  return videoAccess.canView(video, user?._id, user?.role);
+}
+
+/**
  * GET /comments/video/:videoId
  * Returns top-level comments (parentId = null) for a video using cursor-based pagination.
  * Populates author info and adds `isLiked` field when the requester is authenticated.
@@ -37,6 +49,7 @@ exports.getComments = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(videoId)) {
       return error(res, 'Invalid videoId', 400);
     }
+    if (!(await canReadVideoComments(videoId, req.user))) return error(res, 'Video not found', 404);
 
     // Build cursor query — fetch comments older than the cursor _id
     const query = {
@@ -103,6 +116,8 @@ exports.getReplies = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return error(res, 'Invalid comment id', 400);
     }
+    const parent = await Comment.findById(id).select('videoId').lean();
+    if (!parent || !(await canReadVideoComments(parent.videoId, req.user))) return error(res, 'Comment not found', 404);
 
     const query = { parentId: id, isDeleted: false, ...visibleTo(req.user) };
     const blocked = await privacyService.blockedIdSet(req.user?._id);
@@ -180,8 +195,10 @@ exports.createComment = async (req, res) => {
     if (!video) return error(res, 'Video not found', 404);
     const isOwner = String(video.userId) === String(req.user._id);
     const isStaff = ['admin', 'moderator'].includes(req.user.role);
-    const isPublic = video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
-    if (!isPublic && !isOwner && !isStaff) return error(res, 'Video not found', 404);
+    // Bản nháp / hẹn giờ chưa tới / video bạn bè (khi không phải bạn bè) → 404 với người ngoài
+    if (!isOwner && !isStaff && !(await videoAccess.canView(video, req.user._id, req.user.role))) {
+      return error(res, 'Video not found', 404);
+    }
     if (video.status === 'deleted') return error(res, 'Video not found', 404);
     if (!video.allowComment) return error(res, 'Comments are disabled for this video', 403);
     // Cài đặt "Ai được bình luận video của tôi" + chặn
@@ -336,5 +353,45 @@ exports.likeComment = async (req, res) => {
     }
     console.error('[likeComment]', err);
     return error(res, 'Failed to toggle like', 500);
+  }
+};
+
+/**
+ * POST /comments/:id/report — báo cáo bình luận vi phạm.
+ * Body: { reason, note? }. Mỗi người 1 lần / bình luận; không báo cáo bình luận của chính mình.
+ */
+exports.reportComment = async (req, res) => {
+  try {
+    const ContentReport = require('../models/ContentReport');
+    const { id } = req.params;
+    const { reason, note } = req.body || {};
+    if (!mongoose.Types.ObjectId.isValid(id)) return error(res, 'Invalid comment id', 400);
+    if (!ContentReport.CONTENT_REPORT_REASONS.includes(reason)) return error(res, 'Lý do báo cáo không hợp lệ', 400);
+    if (note !== undefined && note !== null && typeof note !== 'string') return error(res, 'note phải là chuỗi', 400);
+    if (typeof note === 'string' && note.trim().length > 300) return error(res, 'Mô tả tối đa 300 ký tự', 400);
+
+    // Chỉ báo cáo được bình luận đang hiện công khai trên video mình xem được
+    const comment = await Comment.findOne({ _id: id, isDeleted: false, ...Comment.PUBLIC_FILTER }).select('userId videoId').lean();
+    if (!comment || !(await canReadVideoComments(comment.videoId, req.user))) return error(res, 'Comment not found', 404);
+    if (String(comment.userId) === String(req.user._id)) return error(res, 'Không thể báo cáo bình luận của chính bạn', 400);
+
+    try {
+      await ContentReport.create({
+        targetType: 'comment',
+        targetId: comment._id,
+        targetUserId: comment.userId,
+        videoId: comment.videoId,
+        reporterId: req.user._id,
+        reason,
+        note: (note || '').trim(),
+      });
+    } catch (err) {
+      if (err.code === 11000) return error(res, 'Bạn đã báo cáo bình luận này rồi', 409);
+      throw err;
+    }
+    return success(res, null, 201, 'Report submitted');
+  } catch (err) {
+    console.error('[reportComment]', err);
+    return error(res, 'Failed to report comment', 500);
   }
 };

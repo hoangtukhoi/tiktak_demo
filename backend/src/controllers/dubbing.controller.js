@@ -7,7 +7,17 @@ const { SUPPORTED_LANGS } = require('../utils/constants');
 
 const LANG_CODES = SUPPORTED_LANGS.map((l) => l.code);
 
+const videoAccess = require('../utils/videoAccess');
+
 const isStaff = (user) => user && (user.role === 'admin' || user.role === 'moderator');
+
+/** Bản lồng tiếng chỉ xem được khi xem được video gốc */
+async function canViewVideo(videoId, user) {
+  const video = await Video.findById(videoId)
+    .select('userId status visibility isPrivate isDraft scheduledAt moderationStatus authorBanned')
+    .lean();
+  return videoAccess.canView(video, user?._id, user?.role);
+}
 
 exports.requestDubbing = async (req, res) => {
   const { videoId, targetLang, sourceLang = 'vi' } = req.body || {};
@@ -48,12 +58,13 @@ exports.requestDubbing = async (req, res) => {
 exports.getDubbingStatus = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.trackId)) return error(res, 'Invalid trackId', 400);
   const track = await AudioTrack.findById(req.params.trackId);
-  if (!track) return error(res, 'Track not found', 404);
+  if (!track || !(await canViewVideo(track.videoId, req.user))) return error(res, 'Track not found', 404);
   success(res, track);
 };
 
 exports.getVideoTracks = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.videoId)) return error(res, 'Invalid videoId', 400);
+  if (!(await canViewVideo(req.params.videoId, req.user))) return error(res, 'Video not found', 404);
   // Trả cả track đang xử lý để frontend hiển thị trạng thái
   const tracks = await AudioTrack.find({ videoId: req.params.videoId }).select('-transcript');
   success(res, tracks);

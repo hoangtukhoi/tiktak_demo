@@ -15,7 +15,7 @@ export default function Register() {
   const onSubmit = async ({ username, email, password }) => {
     try {
       const user = await signUp(username, email, password);
-      toast(`Chào @${user.username}! Tài khoản đã sẵn sàng`, { icon: '🎉' });
+      toast(`Chào @${user.username}, tài khoản đã sẵn sàng`);
       navigate(location.state?.from || '/', { replace: true });
     } catch (e) {
       toast.error(errMsg(e, 'Đăng ký thất bại'));
@@ -40,10 +40,10 @@ export default function Register() {
           {...register('password', { required: 'Nhập mật khẩu', minLength: { value: 6, message: 'Tối thiểu 6 ký tự' } })} />
         <Field label="Nhập lại mật khẩu" type="password" autoComplete="new-password" placeholder="••••••" error={errors.confirm?.message}
           {...register('confirm', { validate: (v) => v === watch('password') || 'Mật khẩu không khớp' })} />
-        <Button type="submit" loading={isSubmitting} className="w-full !py-3.5 text-[16px]">Đăng ký</Button>
+        <Button type="submit" loading={isSubmitting} className="w-full !h-11">Đăng ký</Button>
       </form>
-      <p className="mt-6 text-center text-paper-dim">
-        Đã có tài khoản? <Link to="/login" state={location.state} className="font-bold text-paper underline decoration-lime decoration-2 underline-offset-4">Đăng nhập</Link>
+      <p className="mt-6 text-center text-fg-muted">
+        Đã có tài khoản? <Link to="/login" state={location.state} className="font-semibold text-brand-text hover:underline">Đăng nhập</Link>
       </p>
     </AuthShell>
   );

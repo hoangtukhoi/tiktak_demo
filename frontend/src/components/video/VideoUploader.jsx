@@ -1,18 +1,17 @@
 import { useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Upload } from 'lucide-react';
+import { CloudUpload } from 'lucide-react';
 import { MAX_VIDEO_DURATION_S, MAX_VIDEO_SIZE_MB } from '../../utils/constants';
 
-const readDuration = (file) =>
+export const readMeta = (file) =>
   new Promise((resolve) => {
     const v = document.createElement('video');
     v.preload = 'metadata';
-    v.onloadedmetadata = () => { resolve(v.duration); URL.revokeObjectURL(v.src); };
-    v.onerror = () => resolve(0);
+    v.onloadedmetadata = () => { resolve({ duration: v.duration, width: v.videoWidth, height: v.videoHeight }); URL.revokeObjectURL(v.src); };
+    v.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
     v.src = URL.createObjectURL(file);
   });
 
-/** Vùng kéo-thả video, kiểm tra định dạng / dung lượng / thời lượng theo backend utils/constants.js */
+/** Vùng chọn video, kiểm tra định dạng / dung lượng / thời lượng theo backend utils/constants.js */
 export default function VideoUploader({ onFile }) {
   const input = useRef(null);
   const [drag, setDrag] = useState(false);
@@ -21,36 +20,32 @@ export default function VideoUploader({ onFile }) {
   const pick = async (file) => {
     setError('');
     if (!file) return;
-    if (!file.type.startsWith('video/')) return setError('Chỉ chấp nhận file video (MP4, WebM, MOV).');
-    if (file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) return setError(`Video vượt quá ${MAX_VIDEO_SIZE_MB} MB.`);
-    const dur = await readDuration(file);
-    if (dur > MAX_VIDEO_DURATION_S) return setError(`Video dài ${Math.round(dur)} giây — tối đa ${MAX_VIDEO_DURATION_S / 60} phút.`);
-    onFile(file, dur);
+    if (!file.type.startsWith('video/')) return setError('Chỉ nhận file video (MP4, WebM, MOV).');
+    if (file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) return setError(`Video lớn hơn ${MAX_VIDEO_SIZE_MB} MB.`);
+    const meta = await readMeta(file);
+    if (meta.duration > MAX_VIDEO_DURATION_S) return setError(`Video dài ${Math.round(meta.duration)} giây, tối đa ${MAX_VIDEO_DURATION_S / 60} phút.`);
+    onFile(file, meta);
   };
 
   return (
     <div>
-      <motion.button
-        type="button"
-        onClick={() => input.current.click()}
-        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-        onDragLeave={() => setDrag(false)}
+      <button type="button" onClick={() => input.current.click()}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
         onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
-        animate={{ scale: drag ? 1.015 : 1 }}
-        className={`group relative grid h-[380px] w-full place-items-center overflow-hidden rounded-[28px] border-2 border-dashed text-center transition-colors duration-300 ${drag ? 'border-lime bg-lime/5' : 'border-ink-500 hover:border-paper-mute'}`}
-      >
-        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-lime/10 blur-3xl transition-transform duration-700 group-hover:scale-125" />
-        <div className="relative">
-          <motion.span animate={{ y: drag ? -8 : 0 }} className="mx-auto grid h-20 w-20 place-items-center rounded-3xl bg-lime text-ink transition-transform duration-500 ease-spring group-hover:-rotate-6">
-            <Upload size={34} strokeWidth={2.4} />
-          </motion.span>
-          <p className="mt-5 text-2xl font-extrabold tracking-tight">{drag ? 'Thả vào đây' : 'Kéo thả video vào đây'}</p>
-          <p className="mt-1 text-paper-dim">hoặc bấm để chọn từ máy</p>
-          <p className="label mt-6">MP4 · WEBM · MOV · ≤ {MAX_VIDEO_SIZE_MB}MB · ≤ {MAX_VIDEO_DURATION_S / 60} phút</p>
-        </div>
-      </motion.button>
+        className={`flex h-[420px] w-full flex-col items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors ${drag ? 'border-brand bg-brand-soft' : 'border-line bg-surface hover:border-fg-subtle'}`}>
+        <CloudUpload size={44} strokeWidth={1.4} className={drag ? 'text-brand-text' : 'text-fg-subtle'} />
+        <p className="mt-4 text-md font-semibold">Chọn video để tải lên</p>
+        <p className="mt-1 text-sm text-fg-muted">hoặc kéo thả file vào đây</p>
+        <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-1 text-left text-xs text-fg-muted">
+          <dt>Định dạng</dt><dd className="text-fg">MP4, WebM, MOV</dd>
+          <dt>Dung lượng</dt><dd className="text-fg">tối đa {MAX_VIDEO_SIZE_MB} MB</dd>
+          <dt>Thời lượng</dt><dd className="text-fg">tối đa {MAX_VIDEO_DURATION_S / 60} phút</dd>
+          <dt>Khuyến nghị</dt><dd className="text-fg">dọc 9:16, ≥ 720p</dd>
+        </dl>
+        <span className="btn-primary mt-7 px-8">Chọn file</span>
+      </button>
       <input ref={input} type="file" accept="video/*" hidden onChange={(e) => pick(e.target.files[0])} />
-      {error && <p className="mt-3 rounded-2xl bg-coral/10 px-4 py-3 text-sm font-semibold text-coral">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm font-medium text-danger">{error}</p>}
     </div>
   );
 }

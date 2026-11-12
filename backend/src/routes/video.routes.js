@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const videoController = require('../controllers/video.controller');
 const { authenticate, optionalAuth, requireInternalKey } = require('../middlewares/auth.middleware');
-const { viewLimiter } = require('../middlewares/rateLimit.middleware');
+const { viewLimiter, reactionLimiter, reportLimiter } = require('../middlewares/rateLimit.middleware');
 
 // ─── Static / non-parameterised routes (must appear before /:id) ──────────────
 
@@ -27,21 +27,21 @@ router.delete('/:id', authenticate, videoController.deleteVideo);
 
 // ─── Engagement sub-routes ────────────────────────────────────────────────────
 
-router.post('/:id/like', authenticate, videoController.likeVideo);
+router.post('/:id/like', authenticate, reactionLimiter, videoController.likeVideo);
 router.post('/:id/view', viewLimiter, optionalAuth, videoController.recordView);
 router.post('/:id/share', viewLimiter, optionalAuth, videoController.shareVideo);
 
 // Ghim / bỏ ghim video lên đầu hồ sơ
-router.post('/:id/pin', authenticate, videoController.togglePin);
+router.post('/:id/pin', authenticate, reactionLimiter, videoController.togglePin);
 
 // Đăng lại / bỏ đăng lại video
-router.post('/:id/repost', authenticate, videoController.toggleRepost);
+router.post('/:id/repost', authenticate, reactionLimiter, videoController.toggleRepost);
 
 // Lưu / bỏ lưu video (bookmark)
-router.post('/:id/save', authenticate, videoController.toggleSave);
+router.post('/:id/save', authenticate, reactionLimiter, videoController.toggleSave);
 
 // Report a video (authenticated; one report per user per video)
-router.post('/:id/report', authenticate, videoController.reportVideo);
+router.post('/:id/report', authenticate, reportLimiter, videoController.reportVideo);
 
 // ─── Internal / pipeline callback ────────────────────────────────────────────
 

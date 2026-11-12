@@ -7,6 +7,7 @@
  */
 const express = require('express');
 const mongoose = require('mongoose');
+const { publicMatch } = require('../utils/videoAccess');
 const Video = require('../models/Video');
 
 const router = express.Router();
@@ -21,7 +22,7 @@ router.get('/:id', async (req, res) => {
   let video = null;
   if (mongoose.Types.ObjectId.isValid(id)) {
     // Chỉ lộ thông tin video công khai; video riêng tư/đã xoá hiện trang chung chung
-    video = await Video.findOne({ _id: id, status: 'ready', isPrivate: false, moderationStatus: { $ne: 'removed' } })
+    video = await Video.findOne({ _id: id, ...publicMatch(), moderationStatus: { $ne: 'removed' } })
       .select('title description thumbnailUrl userId width height')
       .populate('userId', 'username displayName')
       .lean();

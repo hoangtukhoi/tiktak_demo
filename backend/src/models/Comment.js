@@ -28,6 +28,8 @@ const commentSchema = new mongoose.Schema(
       enum: ['approved', 'pending', 'rejected'],
       default: 'approved',
     },
+    // Người viết đang bị khoá tài khoản → ẩn (đặt lúc khoá / gỡ lúc mở khoá)
+    authorBanned: { type: Boolean, default: false },
     moderation: {
       // Điểm vi phạm 0–1 (xác suất KHÔNG sạch) do model/bộ lọc chấm
       score: { type: Number, default: null },
@@ -46,6 +48,7 @@ commentSchema.index({ userId: 1 });
 commentSchema.index({ moderationStatus: 1, _id: -1 });
 
 /** Điều kiện "được hiện công khai" (bình luận cũ không có trường moderationStatus vẫn hiện) */
-commentSchema.statics.PUBLIC_FILTER = { moderationStatus: { $nin: ['pending', 'rejected'] } };
+// authorBanned: người viết đang bị khoá tài khoản → ẩn bình luận cho tới khi mở khoá
+commentSchema.statics.PUBLIC_FILTER = { moderationStatus: { $nin: ['pending', 'rejected'] }, authorBanned: { $ne: true } };
 
 module.exports = mongoose.model('Comment', commentSchema);

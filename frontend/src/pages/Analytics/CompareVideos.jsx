@@ -35,24 +35,24 @@ function Picker({ initial = [] }) {
   return (
     <Panel title="Chọn video để so sánh" subtitle="Chọn 2–3 video của bạn">
       {!data ? <div className="skeleton h-60 rounded-2xl" /> : data.videos.length < 2 ? (
-        <p className="text-sm text-paper-dim">Cần ít nhất 2 video để so sánh.</p>
+        <p className="text-sm text-fg-muted">Cần ít nhất 2 video để so sánh.</p>
       ) : (
         <>
           <ul className="max-h-[50vh] space-y-1.5 overflow-y-auto">
             {data.videos.map((v) => (
               <li key={v._id}>
-                <label className={`flex cursor-pointer items-center gap-3 rounded-xl p-2 transition ${picked.includes(v._id) ? 'bg-lime/10' : 'hover:bg-ink-700'}`}>
+                <label className={`flex cursor-pointer items-center gap-3 rounded-xl p-2 transition ${picked.includes(v._id) ? 'bg-brand/10' : 'hover:bg-surface-2'}`}>
                   <input type="checkbox" checked={picked.includes(v._id)} onChange={() => toggle(v._id)} className="h-4 w-4" style={{ accentColor: COLORS.primary }} />
-                  {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-12 w-9 rounded-lg object-cover" /> : <span className="h-12 w-9 rounded-lg bg-ink-600" />}
+                  {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-12 w-9 rounded-lg object-cover" /> : <span className="h-12 w-9 rounded-lg bg-surface-3" />}
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-1 text-sm font-semibold">{v.title}</span>
-                    <span className="text-xs text-paper-mute">{timeAgo(v.createdAt)} · {fmtNumber(v.totals.views)} lượt xem</span>
+                    <span className="text-xs text-fg-subtle">{timeAgo(v.createdAt)} · {fmtNumber(v.totals.views)} lượt xem</span>
                   </span>
                 </label>
               </li>
             ))}
           </ul>
-          <button disabled={picked.length < 2} onClick={() => navigate(`/analytics/compare?ids=${picked.join(',')}`)} className="btn mt-4 w-full">
+          <button disabled={picked.length < 2} onClick={() => navigate(`/analytics/compare?ids=${picked.join(',')}`)} className="btn-primary mt-4 w-full">
             <GitCompare size={16} /> So sánh {picked.length ? `(${picked.length})` : ''}
           </button>
         </>
@@ -68,7 +68,7 @@ export default function CompareVideos() {
   const { data, error } = useLoad(() => (enough ? compareMyVideos(ids) : Promise.resolve(null)), [ids.join(',')]);
 
   const back = (
-    <Link to="/analytics?tab=content" className="inline-flex items-center gap-1.5 text-sm font-semibold text-paper-dim hover:text-paper">
+    <Link to="/analytics?tab=content" className="inline-flex items-center gap-1.5 text-sm font-semibold text-fg-muted hover:text-fg">
       <ArrowLeft size={16} /> Nội dung
     </Link>
   );
@@ -78,7 +78,7 @@ export default function CompareVideos() {
       <div className="mx-auto max-w-[760px] px-4 pb-16 pt-5 sm:px-6">
         {back}
         <h1 className="mb-4 mt-3 text-3xl font-extrabold">So sánh video</h1>
-        {error && <p className="mb-4 text-sm text-coral">Không so sánh được các video đã chọn. Hãy chọn lại.</p>}
+        {error && <p className="mb-4 text-sm text-danger">Không so sánh được các video đã chọn. Hãy chọn lại.</p>}
         <Picker initial={ids} />
       </div>
     );
@@ -99,7 +99,7 @@ export default function CompareVideos() {
       {back}
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-3xl font-extrabold">So sánh video</h1>
-        <Link to={`/analytics/compare?pick=1&ids=`} className="btn-ghost !py-1.5 text-sm">Chọn video khác</Link>
+        <Link to={`/analytics/compare?pick=1&ids=`} className="btn-outline !py-1.5 text-sm">Chọn video khác</Link>
       </div>
 
       {/* Chú thích video ↔ màu */}
@@ -108,10 +108,10 @@ export default function CompareVideos() {
           <div key={k} className="card flex items-center gap-3 p-3" style={{ borderTop: `3px solid ${colors[k]}` }}>
             {it ? (
               <>
-                {it.video.thumbnailUrl ? <img src={it.video.thumbnailUrl} alt="" className="h-16 w-12 shrink-0 rounded-lg object-cover" /> : <span className="h-16 w-12 shrink-0 rounded-lg bg-ink-600" />}
+                {it.video.thumbnailUrl ? <img src={it.video.thumbnailUrl} alt="" className="h-16 w-12 shrink-0 rounded-lg object-cover" /> : <span className="h-16 w-12 shrink-0 rounded-lg bg-surface-3" />}
                 <span className="min-w-0">
                   <span className="line-clamp-2 text-sm font-semibold">{it.video.title}</span>
-                  <span className="text-xs text-paper-mute">Video {k + 1} (V{k + 1}) · {timeAgo(it.video.createdAt)}</span>
+                  <span className="text-xs text-fg-subtle">Video {k + 1} (V{k + 1}) · {timeAgo(it.video.createdAt)}</span>
                 </span>
               </>
             ) : <span className="skeleton h-16 w-full rounded-lg" />}
@@ -128,7 +128,7 @@ export default function CompareVideos() {
         <Panel title="Giữ chân người xem" subtitle="% người xem còn ở lại tại mỗi mốc thời lượng">
           {!data ? <div className="skeleton h-[240px] rounded-2xl" /> : hasRetention ? (
             <LineChart data={retentionRows} series={series} height={240} area={false} yMax={100} ySuffix="%" xFormat={(x) => `${x}%`} tooltipTitle={(x) => `Tại ${x}% thời lượng`} />
-          ) : <p className="py-10 text-center text-sm text-paper-mute">Chưa có dữ liệu giữ chân</p>}
+          ) : <p className="py-10 text-center text-sm text-fg-subtle">Chưa có dữ liệu giữ chân</p>}
         </Panel>
       </div>
 
@@ -137,11 +137,11 @@ export default function CompareVideos() {
           <div className="-mx-5 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-ink-600">
+                <tr className="border-b border-line">
                   <th className="label py-3 pl-5 pr-2 text-left font-bold">Chỉ số</th>
                   {items.map((it, k) => (
                     <th key={k} className="whitespace-nowrap px-2 py-3 text-right last:pr-5">
-                      <span className="inline-flex items-center gap-1.5 font-mono text-xs font-bold text-paper-dim">
+                      <span className="inline-flex items-center gap-1.5 tabular text-xs font-bold text-fg-muted">
                         <span className="h-2.5 w-2.5 rounded-full" style={{ background: colors[k] }} /> V{k + 1}
                       </span>
                     </th>
@@ -154,11 +154,11 @@ export default function CompareVideos() {
                   const valid = vals.filter((x) => x !== null && x !== undefined);
                   const best = lowerBetter === null || valid.length < 2 || new Set(valid).size === 1 ? null : lowerBetter ? Math.min(...valid) : Math.max(...valid);
                   return (
-                    <tr key={label} className="border-b border-ink-700">
-                      <td className="py-2.5 pl-5 pr-2 text-paper-dim">{label}</td>
+                    <tr key={label} className="border-b border-line">
+                      <td className="py-2.5 pl-5 pr-2 text-fg-muted">{label}</td>
                       {vals.map((val, k) => (
-                        <td key={k} className={`whitespace-nowrap px-2 py-2.5 text-right font-mono last:pr-5 ${best !== null && val === best ? 'font-bold text-paper' : ''}`}>
-                          {best !== null && val === best && <Star size={12} className="mr-1 inline -translate-y-px text-lime" aria-label="Tốt nhất" />}
+                        <td key={k} className={`whitespace-nowrap px-2 py-2.5 text-right tabular last:pr-5 ${best !== null && val === best ? 'font-bold text-fg' : ''}`}>
+                          {best !== null && val === best && <Star size={12} className="mr-1 inline -translate-y-px text-brand-text" aria-label="Tốt nhất" />}
                           {fmt(val)}
                         </td>
                       ))}
@@ -166,7 +166,7 @@ export default function CompareVideos() {
                   );
                 })}
                 <tr>
-                  <td className="py-2.5 pl-5 pr-2 text-paper-dim">Nguồn chính</td>
+                  <td className="py-2.5 pl-5 pr-2 text-fg-muted">Nguồn chính</td>
                   {items.map((it, k) => (
                     <td key={k} className="px-2 py-2.5 text-right text-xs last:pr-5">{it.topSource?.views ? `${SOURCE_LABEL[it.topSource.source]} (${fmtPct(it.topSource.pct)})` : '—'}</td>
                   ))}

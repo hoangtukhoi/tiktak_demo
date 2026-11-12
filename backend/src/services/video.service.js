@@ -11,8 +11,9 @@ const ShareEvent = require('../models/ShareEvent');
 const SavedVideo = require('../models/SavedVideo');
 const Repost = require('../models/Repost');
 const redis = require('../config/redis');
-const { resolveMentions } = require('../utils/mentions');
+const { resolveMentions, extractMentionUsernames, MAX_MENTIONS } = require('../utils/mentions');
 const privacyService = require('./privacy.service');
+const access = require('../utils/videoAccess');
 
 // Thời gian cache feed "For You" trong Redis (giây)
 const FEED_CACHE_TTL = Number(process.env.FEED_CACHE_TTL) || 60;
@@ -108,12 +109,11 @@ exports.getVideoById = async (id, currentUserId, currentUserRole) => {
 
   // Chỉ chủ video hoặc admin/moderator mới xem được video private,
   // chưa xử lý xong, đã xoá hoặc đã bị gỡ. Người khác nhận 404.
+  // Bản nháp / hẹn giờ chưa tới / bạn bè (khi không phải bạn bè) cũng 404 với người ngoài.
   const ownerId = video.userId?._id || video.userId;
   const isOwner = currentUserId && String(ownerId) === String(currentUserId);
   const isStaff = currentUserRole === 'admin' || currentUserRole === 'moderator';
-  const isPublic =
-    video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
-  if (!isPublic && !isOwner && !isStaff) httpError('Video not found', 404);
+  if (!(await access.canView(video, currentUserId, currentUserRole))) httpError('Video not found', 404);
   // Đã chặn nhau → coi như video không tồn tại
   if (currentUserId && !isOwner && !isStaff && (await privacyService.isBlockedBetween(currentUserId, ownerId))) {
     httpError('Video not found', 404);
@@ -127,6 +127,9 @@ exports.getVideoById = async (id, currentUserId, currentUserRole) => {
     ]);
     video.isLiked = Boolean(liked);
     video.isSaved = Boolean(saved);
+    if (video.userId?.username && !isOwner) {
+      video.userId.isFollowing = Boolean(await Follow.exists({ followerId: currentUserId, followingId: ownerId }));
+    }
   } else {
     video.isLiked = false;
     video.isSaved = false;
@@ -147,19 +150,25 @@ exports.attachViewerFlags = async (videos, userId) => {
   if (!Array.isArray(videos) || !videos.length) return videos;
   if (!userId) {
     videos.forEach((v) => { v.isLiked = false; v.isSaved = false; });
+    await attachRepostInfo(videos, userId);
     return videos;
   }
   const ids = videos.map((v) => v._id);
-  const [likes, saves] = await Promise.all([
+  const authorIds = [...new Set(videos.map((v) => String(v.userId?._id || v.userId)))];
+  const [likes, saves, follows] = await Promise.all([
     Like.find({ userId, targetType: 'video', targetId: { $in: ids } }).select('targetId').lean(),
     SavedVideo.find({ userId, videoId: { $in: ids } }).select('videoId').lean(),
+    Follow.find({ followerId: userId, followingId: { $in: authorIds } }).select('followingId').lean(),
     attachRepostInfo(videos, userId),
   ]);
   const liked = new Set((likes || []).map((l) => String(l.targetId)));
   const saved = new Set((saves || []).map((s) => String(s.videoId)));
+  const following = new Set((follows || []).map((f) => String(f.followingId)));
   videos.forEach((v) => {
     v.isLiked = liked.has(String(v._id));
     v.isSaved = saved.has(String(v._id));
+    // Nút "+" theo dõi trên avatar tác giả ở feed
+    if (v.userId && typeof v.userId === 'object' && v.userId.username) v.userId.isFollowing = following.has(String(v.userId._id));
   });
   return videos;
 };
@@ -208,18 +217,41 @@ exports.attachRepostInfo = attachRepostInfo;
  */
 exports.updateVideo = async (id, userId, data) => {
   // Whitelist updatable fields to prevent privilege escalation
-  const allowed = ['title', 'description', 'hashtags', 'isPrivate', 'allowComment', 'allowDuet'];
+  const allowed = ['title', 'description', 'hashtags', 'isPrivate', 'visibility', 'allowComment', 'allowDuet', 'isDraft', 'scheduledAt'];
   const update = {};
   for (const key of allowed) {
     if (key in data) update[key] = data[key];
   }
+  if ('visibility' in update && !['public', 'friends', 'private'].includes(update.visibility)) {
+    httpError('visibility phải là public, friends hoặc private', 400);
+  }
+  if ('isDraft' in update) update.isDraft = update.isDraft === true || update.isDraft === 'true';
+  if (update.scheduledAt) {
+    const at = new Date(update.scheduledAt);
+    if (Number.isNaN(at.getTime())) httpError('scheduledAt không hợp lệ', 400);
+    update.scheduledAt = at > new Date() ? at : null;
+    update.scheduledNotifiedAt = null;
+  }
+  // visibility là nguồn chính; client cũ chỉ gửi isPrivate → suy ra visibility
+  if (update.visibility) update.isPrivate = update.visibility !== 'public';
+  else if (typeof update.isPrivate === 'boolean') update.visibility = update.isPrivate ? 'private' : 'public';
+  // Đăng bản nháp ngay → bỏ hẹn giờ cũ nếu đã qua
+  if (update.scheduledAt === '' ) update.scheduledAt = null;
 
   let before = null;
+  const wasDraft = 'isDraft' in update && update.isDraft === false
+    ? Boolean(await Video.exists({ _id: id, userId, isDraft: true }))
+    : false;
   if ('title' in update || 'description' in update) {
     before = await Video.findOne({ _id: id, userId }).select('title description mentions').lean();
     if (before) {
       const caption = `${update.title ?? before.title ?? ''} ${update.description ?? before.description ?? ''}`;
-      update.mentions = await resolveMentions(caption, { excludeIds: [userId] });
+      const fromText = await resolveMentions(caption, { excludeIds: [userId] });
+      // Người được chọn ở ô "Gắn thẻ" lúc tải lên (không có @tên trong mô tả cũ) thì giữ lại
+      const oldNames = new Set(extractMentionUsernames(`${before.title ?? ''} ${before.description ?? ''}`).map((n) => n.toLowerCase()));
+      const picked = (before.mentions || []).filter((m) => !oldNames.has(String(m.username).toLowerCase()));
+      const seen = new Set();
+      update.mentions = [...fromText, ...picked].filter((m) => !seen.has(String(m.userId)) && seen.add(String(m.userId))).slice(0, MAX_MENTIONS);
     }
   }
 
@@ -231,7 +263,16 @@ exports.updateVideo = async (id, userId, data) => {
   if (!video) httpError('Video not found or you are not the owner', 404);
 
   // Chỉ báo cho người MỚI được tag (người đã được tag trước đó không nhận lại)
-  if (before && update.mentions?.length) {
+  // Bản nháp vừa được đăng → báo cho mọi người được tag
+  if (wasDraft) {
+    if (access.isLive(video) && access.visibilityOf(video) !== 'private' && !video.scheduledNotifiedAt) {
+      exports.notifyVideoMentions(video).catch((err) => console.error('[updateVideo] mention notify:', err.message));
+    }
+    if (video.status === 'ready' && video.dubLangs?.length) {
+      require('./autoDubbing.service').queueAutoDubbing(video)
+        .catch((err) => console.error('[updateVideo] auto dubbing:', err.message));
+    }
+  } else if (before && update.mentions?.length) {
     const old = new Set((before.mentions || []).map((m) => String(m.userId)));
     const added = update.mentions.filter((m) => !old.has(String(m.userId)));
     exports.notifyVideoMentions(video, added).catch((err) => console.error('[updateVideo] mention notify:', err.message));
@@ -245,7 +286,8 @@ exports.updateVideo = async (id, userId, data) => {
  */
 exports.notifyVideoMentions = async (video, mentions = video.mentions) => {
   if (!mentions?.length) return;
-  if (video.status !== 'ready' || video.isPrivate || video.moderationStatus === 'removed') return;
+  // Chưa đăng (nháp / hẹn giờ) hoặc chỉ mình tôi → chưa báo; tới giờ đăng thì publishDueVideos báo
+  if (!access.isLive(video) || access.visibilityOf(video) === 'private') return;
   const owner = video.userId && typeof video.userId === 'object' && video.userId.username
     ? video.userId
     : await User.findById(video.userId).select('username avatarUrl').lean();
@@ -319,17 +361,66 @@ exports.deleteVideo = async (id, userId, role = 'user') => {
  * @param {string|undefined} currentUserId  — the requesting user (may differ)
  * @returns {Promise<{videos: Video[], nextCursor: string|null}>}
  */
-exports.getUserVideos = async (targetUserId, cursor, limit = 12, currentUserId) => {
+exports.getUserVideos = async (targetUserId, cursor, limit = 12, currentUserId, { sort = 'latest', role } = {}) => {
   const isOwner = String(currentUserId) === String(targetUserId);
+  const isStaff = role === 'admin' || role === 'moderator';
 
-  const query = { userId: targetUserId, status: 'ready' };
+  // Chủ kênh: mọi video đã xử lý (kể cả đang xử lý, riêng tư, hẹn giờ) trừ bản nháp (có tab riêng).
+  // Người khác: video công khai + video "bạn bè" nếu là bạn bè của chủ kênh.
+  let query;
+  if (isOwner || isStaff) {
+    query = { userId: targetUserId, status: isOwner ? { $in: ['ready', 'processing'] } : 'ready', isDraft: { $ne: true } };
+  } else {
+    const { isPrivate, ...live } = access.publicMatch();
+    const friend = currentUserId && (await access.areFriends(currentUserId, targetUserId));
+    query = {
+      userId: targetUserId,
+      ...live,
+      moderationStatus: { $ne: 'removed' },
+      ...(friend ? { visibility: { $in: ['public', 'friends'] } } : { isPrivate }),
+    };
+  }
 
-  // Non-owners cannot see private videos
-  if (!isOwner) query.isPrivate = false;
-
-  // Video được ghim lên đầu (ghim sau nằm trước), rồi tới video mới nhất.
-  // Sắp giảm dần: pinnedAt = null nhỏ nhất nên video không ghim xếp sau.
+  // popular: nhiều lượt xem trước. latest: video được ghim lên đầu (ghim sau nằm trước),
+  // rồi tới video mới nhất (pinnedAt = null nhỏ nhất nên video không ghim xếp sau).
+  if (sort === 'popular') return findPaged(query, isPageNumber(cursor) ? cursor : undefined, limit, { viewCount: -1, _id: -1 });
   return findPaged(query, cursor, limit, { pinnedAt: -1, _id: -1 });
+};
+
+/**
+ * Bản nháp của chính mình (mới nhất trước).
+ */
+exports.getDrafts = async (userId, cursor, rawLimit = 12) => {
+  const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 12, 1), 50);
+  const r = await findPaged({ userId, isDraft: true, status: { $in: ['ready', 'processing', 'uploading'] } }, cursor, limit);
+  await exports.attachViewerFlags(r.videos, userId);
+  return r;
+};
+
+/**
+ * Video hẹn giờ đã tới giờ đăng: gửi thông báo tag (@) một lần.
+ * Gọi định kỳ từ server.js (mỗi phút).
+ */
+exports.publishDueVideos = async (now = new Date()) => {
+  const due = await Video.find({
+    scheduledAt: { $ne: null, $lte: now },
+    scheduledNotifiedAt: null,
+    status: 'ready',
+    isDraft: { $ne: true },
+    moderationStatus: { $ne: 'removed' },
+  })
+    .limit(100)
+    .lean();
+  for (const v of due) {
+    // Chốt nguyên tử: nhiều tiến trình cùng chạy thì chỉ 1 tiến trình gửi
+    // eslint-disable-next-line no-await-in-loop
+    const claimed = await Video.updateOne({ _id: v._id, scheduledNotifiedAt: null }, { scheduledNotifiedAt: now });
+    if (claimed.modifiedCount) {
+      // eslint-disable-next-line no-await-in-loop
+      await exports.notifyVideoMentions(v).catch((err) => console.error('[publishDueVideos]', err.message));
+    }
+  }
+  return due.length;
 };
 
 const MAX_PINNED = 3;
@@ -386,8 +477,7 @@ exports.searchVideos = async (q, cursor, limit = 12) => {
 
   const query = {
     $text: { $search: q.trim() },
-    status: 'ready',
-    isPrivate: false,
+    ...access.publicMatch(),
     moderationStatus: { $in: ['approved', 'pending'] },
   };
   return findPaged(query, cursor, limit);
@@ -412,9 +502,8 @@ exports.getTrendingVideos = async (limit = 20) => {
   const videos = await Video.aggregate([
     {
       $match: {
-        status: 'ready',
+        ...access.publicMatch(),
         moderationStatus: 'approved',
-        isPrivate: false,
       },
     },
     {
@@ -480,10 +569,13 @@ exports.getFollowingFeed = async (userId, cursor, limit = 20) => {
     return { videos: [], nextCursor: null };
   }
 
+  // Video công khai + video "bạn bè" của những người là bạn bè với mình
+  const friends = await access.friendIds(userId);
+  const { isPrivate, ...live } = access.publicMatch();
   const publicFilter = {
-    status: 'ready',
-    isPrivate: false,
+    ...live,
     moderationStatus: { $in: ['approved', 'pending'] },
+    $and: [{ $or: [{ isPrivate }, { visibility: 'friends', userId: { $in: friends } }] }],
   };
 
   // Video được người mình theo dõi đăng lại (300 lượt gần nhất) cũng vào feed,
@@ -582,8 +674,7 @@ exports.getForYouFeed = async (userId, cursor, limit = 20) => {
   const docs = await Video.aggregate([
     {
       $match: {
-        status: 'ready',
-        isPrivate: false,
+        ...access.publicMatch(),
         moderationStatus: { $in: ['approved', 'pending'] },
       },
     },
@@ -653,8 +744,7 @@ exports.getTrendingHashtags = async (limit = 10) => {
   const results = await Video.aggregate([
     {
       $match: {
-        status: 'ready',
-        isPrivate: false,
+        ...access.publicMatch(),
         createdAt: { $gte: sevenDaysAgo },
       },
     },
@@ -684,7 +774,17 @@ exports.getTrendingHashtags = async (limit = 10) => {
 const VIEW_SOURCES = ['for_you', 'following', 'profile', 'search', 'direct', 'other'];
 const MAX_WATCH_MS = 60 * 60 * 1000; // chặn giá trị vô lý (tab mở cả ngày)
 
-exports.recordView = async (videoId, { watchTimeMs = 0, durationMs = 0, completed = false, source = 'other', viewerId = null } = {}) => {
+/** 404 nếu người này không xem được video (dùng cho đếm lượt xem / chia sẻ) */
+async function assertViewable(videoId, viewerId, role) {
+  const v = await Video.findById(videoId)
+    .select('userId status visibility isPrivate isDraft scheduledAt moderationStatus authorBanned')
+    .lean();
+  if (!v || v.status !== 'ready' || !(await access.canView(v, viewerId, role))) httpError('Video not found', 404);
+}
+
+exports.recordView = async (videoId, { watchTimeMs = 0, durationMs = 0, completed = false, source = 'other', viewerId = null, role } = {}) => {
+  // Chỉ đếm lượt xem cho video người này thật sự xem được (không đếm bản nháp, video riêng tư, đã gỡ...)
+  await assertViewable(videoId, viewerId, role);
   const video = await Video.findOneAndUpdate(
     { _id: videoId, status: 'ready' },
     { $inc: { viewCount: 1 } },
@@ -730,8 +830,8 @@ const REPORT_FLAG_THRESHOLD = () => Math.max(1, Number(process.env.REPORT_FLAG_T
 exports.reportVideo = async (videoId, reporterId, reason, note = '') => {
   const video = await Video.findById(videoId);
   if (!video) httpError('Video not found', 404);
-  const isPublic = video.status === 'ready' && !video.isPrivate && video.moderationStatus !== 'removed';
-  if (!isPublic) httpError('Video not found', 404);
+  // Báo cáo được video mình xem được (kể cả video "bạn bè")
+  if (!access.isLive(video) || !(await access.canView(video, reporterId))) httpError('Video not found', 404);
   if (String(video.userId) === String(reporterId)) httpError('Bạn không thể báo cáo video của chính mình', 400);
 
   // Create the report — unique index will throw E11000 on duplicate
@@ -810,14 +910,15 @@ exports.getSavedVideos = async (userId, cursor, rawLimit = 12) => {
     .populate({ path: 'videoId', populate: { path: 'userId', select: USER_PROJECTION } })
     .lean();
   const hasMore = rows.length > limit;
+  const friends = new Set((await access.friendIds(userId)).map(String));
   const videos = rows
     .slice(0, limit)
     .map((r) => r.videoId && { ...r.videoId, savedAt: r.createdAt })
     .filter((v) => {
       if (!v) return false;
       const isOwner = String(v.userId?._id || v.userId) === String(userId);
-      const isPublic = v.status === 'ready' && !v.isPrivate && v.moderationStatus !== 'removed';
-      return isPublic || (isOwner && v.status === 'ready' && v.moderationStatus !== 'removed');
+      return access.isPublicVideo(v) || (isOwner && v.status === 'ready' && v.moderationStatus !== 'removed')
+        || (access.isLive(v) && access.visibilityOf(v) === 'friends' && friends.has(String(v.userId?._id || v.userId)));
     });
   await exports.attachViewerFlags(videos, userId);
   return { videos, nextCursor: hasMore ? String(page + 1) : null };
@@ -851,9 +952,8 @@ async function claimFirstShare(videoId, userId, ip) {
  * @param {string} method  — một trong ShareEvent.SHARE_METHODS (facebook, messenger, zalo, copy_link...)
  * @returns {Promise<{ shareCount: number, counted: boolean }>}
  */
-exports.recordShare = async (videoId, { userId = null, method = 'other', ip = null } = {}) => {
-  const exists = await Video.exists({ _id: videoId, status: 'ready' });
-  if (!exists) httpError('Video not found', 404);
+exports.recordShare = async (videoId, { userId = null, method = 'other', ip = null, role } = {}) => {
+  await assertViewable(videoId, userId, role);
 
   if (!(await claimFirstShare(videoId, userId, ip))) {
     const current = await Video.findById(videoId).select('shareCount').lean();
@@ -879,7 +979,7 @@ exports.recordShare = async (videoId, { userId = null, method = 'other', ip = nu
 
 // ─── Đăng lại (repost) & video đã thích ─────────────────────────────────────
 
-const isPublicVideo = (v) => v && v.status === 'ready' && !v.isPrivate && v.moderationStatus !== 'removed';
+const { isPublicVideo } = access;
 
 /**
  * Bật/tắt đăng lại video. Chỉ đăng lại được video công khai của người khác.
@@ -888,7 +988,7 @@ const isPublicVideo = (v) => v && v.status === 'ready' && !v.isPrivate && v.mode
  */
 exports.toggleRepost = async (videoId, user) => {
   if (!mongoose.Types.ObjectId.isValid(videoId)) httpError('Invalid video id', 400);
-  const video = await Video.findById(videoId).select('userId status isPrivate moderationStatus thumbnailUrl title').lean();
+  const video = await Video.findById(videoId).select('userId status isPrivate visibility isDraft scheduledAt moderationStatus thumbnailUrl title').lean();
   if (!isPublicVideo(video)) httpError('Video not found', 404);
   if (String(video.userId) === String(user._id)) httpError('Không thể đăng lại video của chính mình', 400);
   if (await privacyService.isBlockedBetween(user._id, video.userId)) httpError('Video not found', 404);

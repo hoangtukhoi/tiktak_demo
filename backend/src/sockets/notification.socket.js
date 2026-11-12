@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const redis = require('../config/redis');
+const presence = require('../services/presence.service');
 
 // Kênh Redis để process worker (không có Socket.IO) nhờ API server emit hộ
 const CHANNEL = 'socket:emit';
@@ -21,8 +22,12 @@ exports.initSocket = (io) => {
   });
   io.on('connection', (socket) => {
     socket.join(`user:${socket.userId}`);
+    presence.socketConnected(socket.userId);
     console.log(`[Socket] Connected: user ${socket.userId}`);
-    socket.on('disconnect', () => console.log(`[Socket] Disconnected: user ${socket.userId}`));
+    socket.on('disconnect', () => {
+      presence.socketDisconnected(socket.userId);
+      console.log(`[Socket] Disconnected: user ${socket.userId}`);
+    });
   });
 
   // Nhận sự kiện do worker publish rồi đẩy tới client

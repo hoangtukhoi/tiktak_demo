@@ -81,14 +81,40 @@ Endpoint `POST /moderate/comments` (header `x-internal-key`) nhận `{ "texts": 
 `{ "results": [{ "label", "score", "scores" }] }`. `score` (0–1) là xác suất bình luận **không sạch**.
 Backend dùng điểm này để hiện ngay, đưa vào hàng chờ cho admin, hoặc tự ẩn (xem `COMMENT_MODERATION_*` trong `backend/.env.example`).
 
-Cắm model đã train:
+### Train model (Kaggle)
 
-1. Chép model vào `ai-service/moderation_model/` (xem README trong thư mục đó).
-2. Đặt biến môi trường (file `.env` ở thư mục gốc khi chạy docker compose, hoặc `ai-service/.env` khi chạy trực tiếp):
-   - `AI_MODERATION_MODEL_PATH` — thư mục HuggingFace hoặc file `.pkl`/`.joblib`
+Notebook `notebooks/train_moderation_vihsd.ipynb` fine-tune **PhoBERT-v2** trên **ViHSD** (~33K bình luận, 3 nhãn `clean` / `offensive` / `hate`),
+in ngưỡng đề xuất cho backend và đẩy model lên HuggingFace. Mở trên Kaggle (GPU T4, bật Internet, thêm Secret `HF_TOKEN` quyền Write) rồi Run All.
+Sau đó chỉ cần `AI_MODERATION_MODEL_PATH=<tên-repo>` — bước tách từ (pyvi) được ghi trong `config.json` nên service tự làm giống lúc train.
+
+> Không dùng model **cảm xúc** (tích cực / tiêu cực): câu chê bình thường ("phim dở quá") sẽ bị coi là vi phạm.
+
+### Cắm model đã train (3 bước)
+
+1. **Chép model vào `ai-service/moderation_model/`** — không cần đặt biến môi trường nào, service tự nhận:
+   - Model HuggingFace (PhoBERT, XLM-R, DistilBERT…): cả thư mục `save_pretrained()` (có `config.json`, weights, tokenizer). Để thẳng trong `moderation_model/` hoặc trong 1 thư mục con đều được.
+   - Model scikit-learn: 1 file `.pkl` / `.joblib` (Pipeline có `predict_proba`), và bỏ comment dòng `scikit-learn` trong `requirements.txt`.
+   - Hoặc không chép gì, đặt `AI_MODERATION_MODEL_PATH=ten-ban/ten-model` để tự tải từ HuggingFace Hub lần đầu chạy.
+2. **Kiểm tra model** (in nhãn, điểm và mức xử lý của vài câu mẫu):
+   ```bash
+   docker compose exec ai-service python scripts/check_moderation.py
+   # hoặc chạy trực tiếp: cd ai-service && python scripts/check_moderation.py "câu cần thử"
+   ```
+   Nếu script báo "Không nhãn nào khớp AI_MODERATION_CLEAN_LABELS" thì khai báo nhãn sạch của model:
    - `AI_MODERATION_CLEAN_LABELS` — tên các nhãn "sạch" (VD `clean` hoặc `0`)
    - `AI_MODERATION_LABEL_NAMES` — nếu model chỉ lưu số lớp, đặt tên theo thứ tự (VD `clean,offensive,hate`)
-3. Nếu lúc train có tiền xử lý riêng (tách từ cho PhoBERT, bỏ dấu…), sửa hàm `_preprocess` trong `app/moderation.py` cho giống.
-4. Kiểm tra: `GET /health` có `moderation_loaded: true`.
+3. **Khởi động lại `ai-service`**. `GET /health` có `moderation_loaded: true`; trang Quản trị → Bình luận hiện "Đang chấm bằng model".
+
+Tách từ: model có `"word_segmenter": "pyvi"` trong `config.json` thì service tự tách từ bằng pyvi; ép bằng `AI_MODERATION_WORD_SEGMENTER=pyvi|none`. Tiền xử lý khác (bỏ dấu…) thì sửa `_preprocess` trong `app/moderation.py`.
+
+### 3 mức xử lý (backend)
+
+| Điểm của model | Kết quả |
+|---|---|
+| < `COMMENT_REVIEW_THRESHOLD` (0.5) | Hiện ngay |
+| từ 0.5 đến < `COMMENT_REJECT_THRESHOLD` (0.85) | Ẩn tạm, vào hàng **Chờ duyệt** cho admin / kiểm duyệt viên |
+| ≥ 0.85 | Ẩn luôn (nằm ở mục **Đã ẩn**, admin vẫn khôi phục được) |
+
+Đổi ngưỡng trong `backend/.env`. `COMMENT_MODERATION_MODE=semi` nếu muốn điểm cao cũng chỉ chờ duyệt.
 
 Chưa cắm model → endpoint trả 503 và backend tự dùng bộ lọc từ khoá (chỉ đưa bình luận nghi vấn vào hàng chờ, không tự ẩn).

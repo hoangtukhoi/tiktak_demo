@@ -9,7 +9,7 @@ const TOKEN_RE = /(^|[^a-zA-Z0-9_@])(@[a-zA-Z0-9_]{3,30})(?![a-zA-Z0-9_])|(#[\p{
  * Hiển thị văn bản có @tag và #hashtag thành link.
  * mentions (từ backend) chỉ dùng để biết tag nào là người thật → tag không tồn tại hiện như chữ thường.
  */
-export default function RichText({ text, mentions, className = '', linkClassName = 'font-bold text-lime hover:underline' }) {
+export default function RichText({ text, mentions, className = '', linkClassName = 'font-bold text-brand-text hover:underline' }) {
   if (!text) return null;
   const known = mentions ? new Set(mentions.map((m) => m.username?.toLowerCase())) : null;
   const parts = [];

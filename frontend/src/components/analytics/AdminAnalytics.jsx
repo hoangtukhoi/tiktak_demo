@@ -26,13 +26,13 @@ const GROWTH = [
 /** Ô số liệu nhỏ có icon trạng thái (không dùng màu đơn thuần để báo trạng thái) */
 function StatusStat({ icon, label, value, tone = 'neutral' }) {
   const Icon = tone === 'good' ? CheckCircle2 : icon; // trạng thái tốt luôn dùng dấu tích
-  const color = { good: '#0ca30c', warn: '#fab219', bad: '#d03b3b', neutral: COLORS.textDim }[tone];
+  const color = { good: 'rgb(var(--success))', warn: 'rgb(var(--warn))', bad: 'rgb(var(--danger))', neutral: COLORS.textDim }[tone];
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-ink-700/60 px-4 py-3">
+    <div className="flex items-center gap-3 rounded-2xl bg-surface-2/60 px-4 py-3">
       <Icon size={20} style={{ color }} aria-hidden />
       <div>
-        <p className="font-mono text-xl font-bold">{value}</p>
-        <p className="text-xs text-paper-dim">{label}</p>
+        <p className="tabular text-xl font-bold">{value}</p>
+        <p className="text-xs text-fg-muted">{label}</p>
       </div>
     </div>
   );
@@ -59,8 +59,8 @@ export default function AdminAnalytics() {
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-paper-dim">
-          {data ? <>Tổng: <b className="font-mono text-paper">{fmtNumber(data.totals.users)}</b> người dùng · <b className="font-mono text-paper">{fmtNumber(data.totals.videos)}</b> video · <b className="font-mono text-paper">{fmtNumber(data.totals.views)}</b> lượt xem tích luỹ</> : ' '}
+        <p className="text-sm text-fg-muted">
+          {data ? <>Tổng: <b className="tabular text-fg">{fmtNumber(data.totals.users)}</b> người dùng · <b className="tabular text-fg">{fmtNumber(data.totals.videos)}</b> video · <b className="tabular text-fg">{fmtNumber(data.totals.views)}</b> lượt xem tích luỹ</> : ' '}
         </p>
         <RangeTabs value={range} onChange={setRange} options={RANGES} />
       </div>
@@ -87,7 +87,7 @@ export default function AdminAnalytics() {
         action={
           <div className="flex flex-wrap gap-1.5">
             {GROWTH.map(([k, label]) => (
-              <button key={k} onClick={() => setMetric(k)} className={`rounded-full px-3 py-1 text-xs font-bold transition ${metric === k ? 'bg-paper text-ink' : 'bg-ink-700 text-paper-dim hover:text-paper'}`}>{label}</button>
+              <button key={k} onClick={() => setMetric(k)} className={`rounded-full px-3 py-1 text-xs font-bold transition ${metric === k ? 'bg-fg text-bg' : 'bg-surface-2 text-fg-muted hover:text-fg'}`}>{label}</button>
             ))}
           </div>
         }
@@ -135,14 +135,14 @@ export default function AdminAnalytics() {
             <ol className="space-y-2.5">
               {data.topVideos.items.map((v, i) => (
                 <li key={v._id}>
-                  <Link to={`/admin/videos/${v._id}/analytics`} title="Xem phân tích video" className="flex items-center gap-3 rounded-xl p-1 transition hover:bg-ink-700">
-                    <span className="w-5 shrink-0 text-right font-mono text-xs text-paper-mute">{i + 1}</span>
-                    {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-11 w-8 shrink-0 rounded-md object-cover" /> : <span className="h-11 w-8 shrink-0 rounded-md bg-ink-600" />}
+                  <Link to={`/admin/videos/${v._id}/analytics`} title="Xem phân tích video" className="flex items-center gap-3 rounded-xl p-1 transition hover:bg-surface-2">
+                    <span className="w-5 shrink-0 text-right tabular text-xs text-fg-subtle">{i + 1}</span>
+                    {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-11 w-8 shrink-0 rounded-md object-cover" /> : <span className="h-11 w-8 shrink-0 rounded-md bg-surface-3" />}
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-1 text-sm font-semibold">{v.title}</span>
-                      <span className="text-xs text-paper-mute">@{v.author?.username}{v.completionRate !== null && ` · xem hết ${fmtPct(v.completionRate)}`}</span>
+                      <span className="text-xs text-fg-subtle">@{v.author?.username}{v.completionRate !== null && ` · xem hết ${fmtPct(v.completionRate)}`}</span>
                     </span>
-                    <span className="shrink-0 font-mono text-sm font-bold">{fmtNumber(v.views)}</span>
+                    <span className="shrink-0 tabular text-sm font-bold">{fmtNumber(v.views)}</span>
                   </Link>
                 </li>
               ))}
@@ -154,14 +154,14 @@ export default function AdminAnalytics() {
             <ol className="space-y-2.5">
               {data.topCreators.items.map((u, i) => (
                 <li key={u._id}>
-                  <Link to={`/profile/${u.username}`} className="flex items-center gap-3 rounded-xl p-1 transition hover:bg-ink-700">
-                    <span className="w-5 shrink-0 text-right font-mono text-xs text-paper-mute">{i + 1}</span>
+                  <Link to={`/profile/${u.username}`} className="flex items-center gap-3 rounded-xl p-1 transition hover:bg-surface-2">
+                    <span className="w-5 shrink-0 text-right tabular text-xs text-fg-subtle">{i + 1}</span>
                     <Avatar user={u} size={32} />
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-1 text-sm font-semibold">{u.displayName || u.username}</span>
-                      <span className="text-xs text-paper-mute">{fmtNumber(u.followerCount)} follower{u.newFollowers ? ` · ${u.newFollowers > 0 ? '+' : ''}${u.newFollowers} kỳ này` : ''}</span>
+                      <span className="text-xs text-fg-subtle">{fmtNumber(u.followerCount)} follower{u.newFollowers ? ` · ${u.newFollowers > 0 ? '+' : ''}${u.newFollowers} kỳ này` : ''}</span>
                     </span>
-                    {data.topCreators.basis === 'period' && <span className="shrink-0 font-mono text-sm font-bold">{fmtNumber(u.views)}</span>}
+                    {data.topCreators.basis === 'period' && <span className="shrink-0 tabular text-sm font-bold">{fmtNumber(u.views)}</span>}
                   </Link>
                 </li>
               ))}
@@ -187,9 +187,9 @@ export default function AdminAnalytics() {
               <StatusStat icon={UserX} label="Tài khoản đang bị khoá" value={fmtNumber(m.bannedUsers)} tone={m.bannedUsers ? 'bad' : 'neutral'} />
               <div className="col-span-2 mt-1 flex flex-wrap gap-1.5">
                 {Object.entries(m.actions).map(([k, n]) => (
-                  <span key={k} className="rounded-full bg-ink-700 px-3 py-1 text-xs text-paper-dim">{ACTION_LABEL[k] || k}: <b className="font-mono text-paper">{n}</b></span>
+                  <span key={k} className="rounded-full bg-surface-2 px-3 py-1 text-xs text-fg-muted">{ACTION_LABEL[k] || k}: <b className="tabular text-fg">{n}</b></span>
                 ))}
-                {!Object.keys(m.actions).length && <span className="text-xs text-paper-mute">Chưa có thao tác quản trị nào trong kỳ</span>}
+                {!Object.keys(m.actions).length && <span className="text-xs text-fg-subtle">Chưa có thao tác quản trị nào trong kỳ</span>}
               </div>
             </div>
           ) : sk(220)}
@@ -229,7 +229,7 @@ export default function AdminAnalytics() {
         </Panel>
       </div>
 
-      {data && <p className="mt-6 text-right font-mono text-[11px] text-paper-mute">Cập nhật {new Date(data.generatedAt).toLocaleTimeString('vi-VN')} · làm mới mỗi 5 phút · múi giờ {data.timezone}</p>}
+      {data && <p className="mt-6 text-right tabular text-[11px] text-fg-subtle">Cập nhật {new Date(data.generatedAt).toLocaleTimeString('vi-VN')} · làm mới mỗi 5 phút · múi giờ {data.timezone}</p>}
     </div>
   );
 }

@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, X } from 'lucide-react';
-import Avatar from '../common/Avatar';
 import MentionInput from '../common/MentionInput';
 
-const QUICK = ['🔥', '😂', '😍', '👏', '🥹', '💯'];
+const QUICK = ['😂', '😍', '🔥', '👏', '🥹', '😮'];
 
-export default function CommentInput({ user, onSubmit, replyTo, onCancelReply, disabled }) {
+export default function CommentInput({ onSubmit, replyTo, onCancelReply, disabled }) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const ref = useRef(null);
-
   // Trả lời → điền sẵn @tên người được trả lời (giống TikTok)
   useEffect(() => {
     if (!replyTo) return;
@@ -23,42 +21,28 @@ export default function CommentInput({ user, onSubmit, replyTo, onCancelReply, d
     const t = text.trim();
     if (!t || sending) return;
     setSending(true);
-    try { await onSubmit(t); setText(''); } finally { setSending(false); }
+    try { await onSubmit(t); setText(''); } catch { /* đã báo lỗi */ } finally { setSending(false); }
   };
 
   return (
-    <form onSubmit={submit} className="border-t border-ink-600 bg-ink-800 pt-3">
+    <form onSubmit={submit} className="border-t border-line bg-surface px-4 pb-3 pt-2">
       {replyTo && (
-        <div className="mb-2 flex items-center justify-between rounded-xl bg-ink-700 px-3 py-1.5 text-xs text-paper-dim">
-          Trả lời <b className="text-paper">@{replyTo.user.username}</b>
-          <button type="button" onClick={onCancelReply} aria-label="Huỷ trả lời"><X size={14} /></button>
+        <div className="mb-2 flex items-center justify-between text-xs text-fg-muted">
+          <span>Trả lời <b className="text-fg">{replyTo.user.username}</b></span>
+          <button type="button" onClick={onCancelReply} className="icon-btn !h-6 !w-6" aria-label="Huỷ trả lời"><X size={14} /></button>
         </div>
       )}
       {!disabled && (
-        <div className="mb-2 flex gap-1">
-          {QUICK.map((e) => (
-            <button key={e} type="button" onClick={() => setText((t) => t + e)} className="rounded-full px-2 py-1 text-lg transition hover:scale-125 hover:bg-ink-700">{e}</button>
-          ))}
+        <div className="mb-1.5 flex gap-0.5">
+          {QUICK.map((e) => <button key={e} type="button" onClick={() => setText((t) => t + e)} className="rounded px-1.5 py-0.5 text-lg hover:bg-surface-2" aria-label={`Chèn ${e}`}>{e}</button>)}
         </div>
       )}
       <div className="flex items-center gap-2">
-        {user && <Avatar user={user} size={32} />}
-        <MentionInput
-          ref={ref}
-          value={text}
-          onChange={setText}
-          maxLength={500}
-          disabled={disabled}
-          placeholder={disabled ? 'Đăng nhập để bình luận' : 'Thêm bình luận… gõ @ để tag bạn bè'}
-          className="input !rounded-full !py-2.5"
-        />
-        <button
-          type="submit"
-          disabled={!text.trim() || sending || disabled}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime text-ink transition duration-300 ease-spring enabled:hover:-rotate-12 disabled:bg-ink-600 disabled:text-paper-mute"
-          aria-label="Gửi"
-        >
-          <ArrowUp size={20} strokeWidth={2.6} />
+        <MentionInput ref={ref} value={text} onChange={setText} maxLength={500} disabled={disabled}
+          placeholder={disabled ? 'Đăng nhập để bình luận' : replyTo ? 'Viết câu trả lời…' : 'Thêm bình luận… gõ @ để tag'} className="input !h-11 !rounded-full !bg-surface-2 !border-transparent" />
+        <button type="submit" disabled={!text.trim() || sending || disabled} aria-label="Gửi"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover disabled:bg-surface-2 disabled:text-fg-subtle">
+          <ArrowUp size={19} strokeWidth={2.4} />
         </button>
       </div>
     </form>

@@ -66,8 +66,23 @@ describe('decide — điểm → trạng thái', () => {
     expect(moderation.decide({ score: null, source: 'none' })).toBe('approved');
   });
 
-  test('chế độ lạ → coi như semi', () => {
+  test('chế độ lạ / không đặt → auto (đủ 3 mức)', () => {
     process.env.COMMENT_MODERATION_MODE = 'xyz';
-    expect(moderation.config().mode).toBe('semi');
+    expect(moderation.config().mode).toBe('auto');
+    delete process.env.COMMENT_MODERATION_MODE;
+    expect(moderation.config().mode).toBe('auto');
+  });
+
+  test('3 mức theo điểm của model: thấp → hiện, vừa → chờ admin duyệt, cao → ẩn luôn', () => {
+    expect(moderation.decide({ score: 0.2, source: 'model' })).toBe('approved');
+    expect(moderation.decide({ score: 0.5, source: 'model' })).toBe('pending');
+    expect(moderation.decide({ score: 0.84, source: 'model' })).toBe('pending');
+    expect(moderation.decide({ score: 0.85, source: 'model' })).toBe('rejected');
+    expect(moderation.decide({ score: 0.99, source: 'model' })).toBe('rejected');
+  });
+
+  test('chế độ semi: điểm cao cũng chỉ chờ duyệt, không tự ẩn', () => {
+    process.env.COMMENT_MODERATION_MODE = 'semi';
+    expect(moderation.decide({ score: 0.99, source: 'model' })).toBe('pending');
   });
 });

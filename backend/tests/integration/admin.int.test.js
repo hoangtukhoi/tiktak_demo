@@ -11,7 +11,7 @@ describe('Phân quyền /api/admin', () => {
   test.each([
     ['khách', null, 401],
     ['user thường', 'user', 403],
-    ['moderator', 'moderator', 403],
+    ['moderator (xem được danh sách, không quản lý tài khoản)', 'moderator', 200],
     ['admin', 'admin', 200],
   ])('%s → %i', async (_, role, status) => {
     const headers = role ? (await createUser({ role })).auth : {};

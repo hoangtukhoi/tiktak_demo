@@ -57,9 +57,14 @@ minio_data/
 # Model kiểm duyệt bình luận (file lớn, không commit) — giữ lại README hướng dẫn
 ai-service/moderation_model/*
 !ai-service/moderation_model/README.md
+# File nén model tải về (vài trăm MB, GitHub chặn file > 100 MB)
+ai-service/*.zip
 
 # Báo cáo độ phủ test
 coverage/
 
 # Tài khoản bot test (npm run bot)
 .bot-accounts.json
+
+# Bản sao lưu trước khi gộp giao diện (không đưa lên git)
+_backup/

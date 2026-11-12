@@ -1,46 +1,40 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import useAuth from '../../hooks/useAuth';
-import { toggleFollow } from '../../api/user.api';
+import { followUser, unfollowUser } from '../../api/auth.api';
 import { errMsg } from '../../api/axiosClient';
 
 /**
- * Nút Theo dõi / Đang theo dõi / Theo dõi lại / Bạn bè.
- * onChange(isFollowing) được gọi sau khi server xác nhận.
+ * Nút Theo dõi dùng chung (feed, hồ sơ, danh sách follower, tìm kiếm). Ẩn với chính mình.
+ * user.followsYou = họ đang theo dõi mình → "Theo dõi lại" / "Bạn bè" (theo dõi 2 chiều).
  */
-export default function FollowButton({ user, isFollowing, followsYou, onChange, size = 'md', className = '' }) {
-  const { requireAuth } = useAuth();
+export default function FollowButton({ user, size, onChange, className = '' }) {
+  const { user: me, requireAuth } = useAuth();
+  const [following, setFollowing] = useState(!!user?.isFollowing);
   const [busy, setBusy] = useState(false);
-  const [hover, setHover] = useState(false);
+  useEffect(() => setFollowing(!!user?.isFollowing), [user?._id, user?.isFollowing]);
 
-  const click = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  if (!user?._id || me?._id === user._id) return null;
+
+  const toggle = async (e) => {
+    e.preventDefault(); e.stopPropagation();
     if (!requireAuth('Đăng nhập để theo dõi')) return;
-    setBusy(true);
+    const next = !following;
+    setFollowing(next); setBusy(true);
     try {
-      const r = await toggleFollow(user.username);
-      onChange?.(Boolean(r?.following));
+      const r = await (next ? followUser(user._id) : unfollowUser(user._id));
+      onChange?.({ isFollowing: next, followerCount: r?.followerCount });
     } catch (err) {
+      setFollowing(!next);
       toast.error(errMsg(err));
     }
     setBusy(false);
   };
 
-  const label = isFollowing
-    ? hover ? 'Bỏ theo dõi' : followsYou ? 'Bạn bè' : 'Đang theo dõi'
-    : followsYou ? 'Theo dõi lại' : 'Theo dõi';
-  const pad = size === 'sm' ? '!px-4 !py-1.5 text-sm' : '';
   return (
-    <button
-      onClick={click}
-      disabled={busy}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className={`${isFollowing ? 'btn-ghost hover:!text-coral' : 'btn'} min-w-[112px] ${pad} ${className}`}
-      aria-pressed={isFollowing}
-    >
-      {label}
+    <button onClick={toggle} disabled={busy} aria-pressed={following}
+      className={`${following ? 'btn-secondary' : 'btn-primary'} ${size === 'sm' ? 'btn-sm' : ''} min-w-[96px] ${className}`}>
+      {following ? (user.followsYou ? 'Bạn bè' : 'Đang theo dõi') : user.followsYou ? 'Theo dõi lại' : 'Theo dõi'}
     </button>
   );
 }

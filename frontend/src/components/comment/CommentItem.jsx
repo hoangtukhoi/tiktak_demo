@@ -1,24 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, EyeOff, Heart, Trash2 } from 'lucide-react';
+import { Clock, EyeOff, Flag, Heart, Trash2 } from 'lucide-react';
 import Avatar from '../common/Avatar';
 import RichText from '../common/RichText';
 import { getReplies, likeComment } from '../../api/video.api';
 import { formatCount, timeAgo } from '../../utils/format';
 
-/** Nhãn cho bình luận chưa hiện công khai — chỉ tác giả nhìn thấy */
+/** Nhãn cho bình luận chưa hiện công khai — chỉ người viết nhìn thấy */
 export function ModerationBadge({ status }) {
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-paper/10 px-2 py-0.5 font-mono text-[10px] font-bold text-paper-dim" title="Chỉ bạn thấy bình luận này cho tới khi được duyệt">
+      <span className="inline-flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-fg-muted" title="Chỉ bạn thấy bình luận này cho tới khi được duyệt">
         <Clock size={11} /> Đang chờ duyệt
       </span>
     );
   }
   if (status === 'rejected') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-coral/15 px-2 py-0.5 font-mono text-[10px] font-bold text-coral" title="Bình luận vi phạm tiêu chuẩn cộng đồng nên chỉ bạn nhìn thấy">
+      <span className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-semibold text-danger" title="Bình luận vi phạm tiêu chuẩn cộng đồng nên chỉ bạn nhìn thấy">
         <EyeOff size={11} /> Đã bị ẩn
       </span>
     );
@@ -26,72 +26,72 @@ export function ModerationBadge({ status }) {
   return null;
 }
 
-export default function CommentItem({ comment, canDelete, canDeleteReply, onDelete, onReply, requireAuth }) {
-  const [liked, setLiked] = useState(!!comment.isLiked);
+/**
+ * canDelete(comment) -> bool ; onDelete(comment, { isReply }) -> Promise<bool đã xoá>
+ * canReport(comment) -> bool ; onReport(comment): mở hộp thoại báo cáo
+ */
+export default function CommentItem({ comment, canDelete, onDelete, canReport, onReport, onReply, requireAuth, depth = 0, onRemoved }) {
+  const [liked, setLiked] = useState(comment.isLiked);
+  const [count, setCount] = useState(comment.likeCount);
   const [replies, setReplies] = useState(null);
   const hidden = comment.moderationStatus !== 'approved';
-  // likeCount từ server đã gồm lượt thích của mình (nếu có) → chỉ cộng/trừ phần chênh
-  const likeCount = comment.likeCount + (liked ? 1 : 0) - (comment.isLiked ? 1 : 0);
 
-  const like = () => {
-    if (!requireAuth()) return;
-    setLiked((l) => !l);
-    likeComment(comment._id).catch(() => setLiked((l) => !l));
+  // Có trả lời mới (replyCount tăng) khi danh sách đang mở -> tải lại
+  useEffect(() => { if (replies) getReplies(comment._id).then(setReplies).catch(() => {}); }, [comment.replyCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const like = async () => {
+    if (!requireAuth('Đăng nhập để thích bình luận')) return;
+    setLiked((l) => !l); setCount((c) => c + (liked ? -1 : 1));
+    try { const r = await likeComment(comment._id); if (r && typeof r.isLiked === 'boolean') { setLiked(r.isLiked); setCount(r.likeCount ?? count); } }
+    catch { setLiked(liked); setCount(comment.likeCount); }
   };
 
-  const loadReplies = async () => setReplies(await getReplies(comment._id).catch(() => []));
-  const removeReply = (r) => {
-    setReplies((rs) => rs.filter((x) => x._id !== r._id));
-    onDelete(r, { isReply: true });
+  const remove = async () => {
+    const ok = await onDelete(comment, { isReply: depth > 0 });
+    if (ok && depth) onRemoved?.(comment);
   };
 
+  const size = depth ? 28 : 36;
   return (
-    <motion.li layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className={`group flex gap-3 py-3 ${hidden ? 'opacity-70' : ''}`}>
-      <Link to={`/profile/${comment.user.username}`}><Avatar user={comment.user} size={36} /></Link>
+    <motion.li layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`group flex gap-3 py-3 ${hidden ? 'opacity-75' : ''}`}>
+      <Link to={`/profile/${comment.user.username}`}><Avatar user={comment.user} size={size} /></Link>
       <div className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
-          <Link to={`/profile/${comment.user.username}`} className="text-sm font-bold text-paper-dim hover:text-paper">{comment.user.username}</Link>
+          <Link to={`/profile/${comment.user.username}`} className="text-sm font-semibold text-fg-muted hover:text-fg">{comment.user.username}</Link>
           <ModerationBadge status={comment.moderationStatus} />
         </span>
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-snug">
-          <RichText text={comment.text} mentions={comment.mentions} />
-        </p>
-        <div className="mt-1.5 flex items-center gap-4 font-mono text-[11px] text-paper-mute">
+        <p className="whitespace-pre-wrap break-words text-base leading-snug"><RichText text={comment.text} mentions={comment.mentions} /></p>
+        <div className="mt-1 flex items-center gap-4 text-xs text-fg-muted">
           <span>{timeAgo(comment.createdAt)}</span>
-          {!hidden && <button onClick={() => onReply(comment)} className="font-bold hover:text-paper">Trả lời</button>}
-          {canDelete && (
-            <button onClick={() => onDelete(comment)} className="opacity-0 transition hover:text-coral focus-visible:opacity-100 group-hover:opacity-100" aria-label="Xoá bình luận"><Trash2 size={13} /></button>
+          {!depth && !hidden && <button onClick={() => onReply(comment)} className="font-semibold hover:text-fg">Trả lời</button>}
+          {canDelete?.(comment) && (
+            <button onClick={remove} className="inline-flex items-center gap-1 opacity-0 transition hover:text-danger focus:opacity-100 group-hover:opacity-100"><Trash2 size={13} /> Xoá</button>
+          )}
+          {!hidden && canReport?.(comment) && (
+            // Điện thoại không có hover → luôn hiện (mờ); máy tính hiện khi rê chuột
+            <button onClick={() => onReport(comment)} aria-label="Báo cáo bình luận" title="Báo cáo bình luận"
+              className="inline-flex items-center gap-1 text-fg-subtle transition hover:text-danger focus:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"><Flag size={13} /> <span className="hidden lg:inline">Báo cáo</span></button>
           )}
         </div>
-        {comment.replyCount > 0 && !replies && (
-          <button onClick={loadReplies} className="mt-2 flex items-center gap-2 font-mono text-[11px] font-bold text-paper-dim hover:text-paper">
-            <span className="h-px w-6 bg-ink-500" /> Xem {comment.replyCount} trả lời
+        {!depth && comment.replyCount > 0 && !replies && (
+          <button onClick={() => getReplies(comment._id).then(setReplies).catch(() => setReplies([]))} className="mt-2 flex items-center gap-2 text-xs font-semibold text-fg-muted hover:text-fg">
+            <span className="h-px w-6 bg-line" /> Xem {comment.replyCount} câu trả lời
           </button>
         )}
         {replies?.length > 0 && (
-          <ul className="mt-1 border-l border-ink-600 pl-3">
+          <ul>
             {replies.map((r) => (
-              <li key={r._id} className={`group/reply flex gap-2 py-2 text-sm ${r.moderationStatus !== 'approved' ? 'opacity-70' : ''}`}>
-                <Link to={`/profile/${r.user.username}`}><Avatar user={r.user} size={24} /></Link>
-                <span className="min-w-0 flex-1 break-words">
-                  <Link to={`/profile/${r.user.username}`} className="font-bold text-paper-dim hover:text-paper">{r.user.username}</Link>{' '}
-                  <RichText text={r.text} mentions={r.mentions} />
-                  {r.moderationStatus !== 'approved' && <span className="ml-2 align-middle"><ModerationBadge status={r.moderationStatus} /></span>}
-                </span>
-                {canDeleteReply?.(r) && (
-                  <button onClick={() => removeReply(r)} className="text-paper-mute opacity-0 transition hover:text-coral focus-visible:opacity-100 group-hover/reply:opacity-100" aria-label="Xoá trả lời"><Trash2 size={12} /></button>
-                )}
-              </li>
+              <CommentItem key={r._id} comment={r} canDelete={canDelete} onDelete={onDelete} canReport={canReport} onReport={onReport} onReply={onReply} requireAuth={requireAuth} depth={1}
+                onRemoved={(x) => setReplies((rs) => rs.filter((y) => y._id !== x._id))} />
             ))}
           </ul>
         )}
       </div>
       {!hidden && (
-        <button onClick={like} className={`flex flex-col items-center gap-0.5 pt-1 transition ${liked ? 'text-coral' : 'text-paper-mute hover:text-paper'}`} aria-label="Thích bình luận" aria-pressed={liked}>
-          <motion.span key={String(liked)} initial={liked ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 9, stiffness: 400 }}>
-            <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
-          </motion.span>
-          <span className="font-mono text-[10px]">{formatCount(Math.max(0, likeCount))}</span>
+        <button onClick={like} aria-label="Thích bình luận" aria-pressed={liked}
+          className={`flex w-8 flex-col items-center gap-0.5 pt-1 ${liked ? 'text-[#FF3B4E]' : 'text-fg-subtle hover:text-fg'}`}>
+          <Heart size={17} fill={liked ? 'currentColor' : 'none'} strokeWidth={liked ? 0 : 1.75} />
+          <span className="tabular text-2xs">{formatCount(Math.max(0, count))}</span>
         </button>
       )}
     </motion.li>

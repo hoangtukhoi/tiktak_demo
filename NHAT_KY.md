@@ -7,6 +7,83 @@ Mỗi lần làm thêm, thêm một mục ngày mới theo mẫu ở cuối file
 
 ---
 
+## 12/11/2026 (Thứ Năm)
+
+### Kiểm duyệt bình luận bằng model NLP — 3 mức
+- Mặc định `COMMENT_MODERATION_MODE=auto`: điểm < 0.5 → hiện ngay; 0.5–0.85 → **chờ admin duyệt** (chỉ người viết thấy, có nhãn "Đang chờ duyệt"); ≥ 0.85 → **ẩn luôn** (nằm ở mục "Đã ẩn", admin khôi phục được). Ngưỡng đổi trong `backend/.env`.
+- Cắm model: chép vào `ai-service/moderation_model/` (thư mục HuggingFace `save_pretrained()` hoặc file `.pkl`/`.joblib` của scikit-learn) rồi khởi động lại `ai-service`, không cần cấu hình thêm. Kiểm tra bằng `python scripts/check_moderation.py` (in nhãn, điểm và mức xử lý của câu mẫu).
+- Chưa có model / AI service tắt → tự dùng bộ lọc từ khoá (chỉ đưa vào hàng chờ, không tự ẩn). Trang Quản trị → Bình luận có dòng báo đang chấm bằng model hay từ khoá (`GET /admin/moderation/status`).
+- File: `ai-service/app/moderation.py`, `scripts/check_moderation.py`, `README.md`; backend `services/commentModeration.service.js`.
+
+### Vá quyền xem + giới hạn tần suất
+- Bình luận / trả lời, bản lồng tiếng: người không xem được video (riêng tư, bạn bè, nháp) thì 404.
+- Lượt xem / chia sẻ không còn tăng trên bản nháp, video riêng tư, video đã gỡ.
+- Tiến trình tải lên (`/upload/:jobId/progress`) phải đăng nhập.
+- Giới hạn riêng theo tài khoản: bình luận 12/phút, theo dõi 30/phút, thích-lưu-đăng lại 90/phút, báo cáo 10/10 phút (`*_RATE_LIMIT` trong `.env`).
+
+### Quản trị
+- **Khoá tài khoản** → ẩn toàn bộ video và bình luận của người đó (cờ `authorBanned`), mở khoá thì hiện lại. Khoá phải xác nhận và nhập lý do; người bị khoá thấy lý do khi đăng nhập.
+- **Thông báo cho chủ nội dung** khi video bị gỡ / được khôi phục, bình luận bị ẩn (kèm lý do) — loại thông báo `moderation`, mục "Hệ thống" trong Hoạt động.
+- **Phân trang, tìm kiếm, lọc** ở các tab Người dùng, Video, Bình luận, Nhật ký; ô tổng quan thêm người dùng mới hôm nay, tổng lượt xem.
+- **Vai trò**: admin đổi vai trò (người dùng ↔ kiểm duyệt viên ↔ quản trị), thu lại tích xanh. **Kiểm duyệt viên** vào được trang Kiểm duyệt (báo cáo, video, bình luận) nhưng không khoá tài khoản, không đổi vai trò, không xem nhật ký / phân tích hệ thống, không thấy email.
+- **Báo cáo bình luận và tài khoản**: nút báo cáo ở từng bình luận và trong menu "⋯" của hồ sơ; tab Báo cáo chia Video / Bình luận / Tài khoản, có "Không vi phạm", "Ẩn bình luận", "Khoá tài khoản". Model mới `ContentReport`.
+- Test: thêm `tests/integration/moderationAdmin.int.test.js`. Tổng **831/831**.
+
+### Đổi mật khẩu
+- Viết nốt `changePassword` trong `controllers/user.controller.js` (`PATCH /users/me/change-password`): kiểm tra mật khẩu mới 6–128 ký tự, khác mật khẩu cũ; gọi `authService.changePassword`; trả cặp token mới, các thiết bị khác bị đăng xuất. Tài khoản Google chưa có mật khẩu thì không cần mật khẩu hiện tại.
+- Test: `tests/integration/changePassword.int.test.js` (6 test). Tổng **837/837**.
+
+### Notebook train model kiểm duyệt (Kaggle)
+- `ai-service/notebooks/train_moderation_vihsd.ipynb`: fine-tune `vinai/phobert-base-v2` trên ViHSD (clean / offensive / hate), tách từ bằng pyvi, trọng số lớp chống lệch dữ liệu, dừng sớm theo macro-F1; in bảng chọn ngưỡng + đề xuất `COMMENT_REVIEW_THRESHOLD` / `COMMENT_REJECT_THRESHOLD`; đẩy model + tokenizer lên HuggingFace.
+- Model cảm xúc `hoangkkk/phobert-v2-vietnamese-sentiment` (tích cực / tiêu cực) không dùng để kiểm duyệt: câu chê bình thường bị coi là vi phạm.
+- `ai-service` tự tách từ theo `word_segmenter` trong `config.json` của model (thêm `pyvi` vào `requirements.txt`, biến `AI_MODERATION_WORD_SEGMENTER`); `/health` và `check_moderation.py` hiện bộ tách từ đang dùng.
+- `docker-compose.yml`: truyền `HF_TOKEN` cho repo model private. `.gitignore`: bỏ qua `ai-service/*.zip`.
+
+### Trạng thái hoạt động thật (trang Quản trị → Người dùng)
+- Trước: cột trạng thái luôn ghi "Hoạt động" cho mọi tài khoản chưa bị khoá (nghĩa là "không bị khoá", không phải đang online).
+- Thêm `User.lastActiveAt` + `services/presence.service.js`: ghi khi có request đã đăng nhập (tối đa 1 lần/phút/người) và khi mở / đóng kết nối Socket.IO.
+- "Đang online" = đang mở kết nối realtime hoặc hoạt động trong 5 phút gần nhất. API admin trả thêm `isOnline`, có bộ lọc `status=online`.
+- Giao diện: Đang online / Hoạt động N phút trước / Chưa hoạt động; chip "Hoạt động" đổi tên thành "Không bị khoá", thêm chip "Đang online".
+- Hồ sơ công khai không trả `lastActiveAt`. Test: `presence.int.test.js` (8 test, có kiểm tra người mới đăng ký không có tích xanh).
+
+### Còn tồn đọng
+- Nhánh model HuggingFace mới chạy thử với model nhỏ tự tạo (nạp + tách từ đúng); chưa chạy với model PhoBERT thật.
+
+---
+
+## 09/11/2026 (Thứ Hai)
+
+### Gộp giao diện mới của Trung (nhánh `master`, commit `3e16c07`)
+- Lấy giao diện mới làm nền: theme sáng/tối (màu `--brand` đỏ cam, font Be Vietnam Pro), Sidebar mới, trang **Hoạt động** (`/inbox`), Upload mới (ảnh bìa, ai được xem, hẹn giờ, bản nháp, gắn thẻ, lồng tiếng), sửa video (`EditVideoDialog`), `Menu`, `Logo`, `useMedia`.
+- Gắn lại các tính năng của mình vào giao diện mới:
+  - Video: thanh âm lượng kéo được, nút báo cáo (máy tính) + báo cáo/đăng lại trong bảng Chia sẻ, dòng "… đã đăng lại", tag `@tên` thành link, đo thời gian xem thật (`source`), chia sẻ chỉ tính 1 lần / tài khoản.
+  - Báo cáo dùng hộp thoại của Trung nhưng gửi đúng mã lý do backend (`spam`, `violence`…).
+  - Bình luận: gõ `@` gợi ý tag, nhãn "Đang chờ duyệt / Đã bị ẩn", chủ video + admin xoá được, khoá bình luận theo quyền riêng tư.
+  - Hồ sơ: tab Video / Đăng lại / Đã thích / Đã lưu / Bản nháp (có phân trang), ghim video, nút Phân tích + Quyền riêng tư, chặn qua menu "⋯", danh sách người theo dõi (có tìm kiếm, khoá theo quyền riêng tư), sửa hồ sơ đầy đủ (tên hiển thị, đổi username, liên kết, cắt ảnh đại diện).
+  - Nút theo dõi: "Theo dõi lại" / "Bạn bè".
+  - Admin: tab Phân tích, Báo cáo, Video chờ duyệt, Bình luận (điểm AI), Người dùng, Video, Nhật ký — theo kiểu bảng của Trung.
+  - Đăng nhập Google, trang Phân tích, Cài đặt quyền riêng tư (đổi sang màu/thành phần mới), admin không có hồ sơ/phân tích cá nhân.
+  - Hoạt động: thêm loại thông báo "Đăng lại".
+  - Sửa lỗi video thứ 3 trở đi trong feed không phát (VideoPlayer dùng `attachRef`).
+- Bản cũ của các file bị thay được sao lưu ở `_backup/frontend-truoc-merge-2026-11-09/` (đã thêm `_backup/` vào `.gitignore`).
+- `components/video/ReportSheet.jsx` không còn dùng nữa (thay bằng hộp thoại báo cáo trong `ShareSheet.jsx`) → xoá được.
+
+### Backend cho giao diện mới
+- `POST /users/:id/follow` = theo dõi (gọi lại vẫn giữ nguyên), `DELETE /users/:id/follow` = bỏ theo dõi; nhận cả id lẫn username; trả `{ isFollowing, followerCount }`.
+- `POST /upload` nhận thêm: ảnh bìa `thumbnail` (≤ 5 MB, transcode không ghi đè), `visibility` (public / friends / private), `isDraft`, `scheduledAt` (≤ 30 ngày), `mentions` (mảng id, gộp với `@tên` trong mô tả, theo quyền "Ai được tag"), `allowDuet`, `sourceLang`, `autoCaption`, `dubLangs`.
+- Model `Video`: `visibility`, `isDraft`, `scheduledAt`, `customThumbnail`, `sourceLang`, `autoCaption`, `dubLangs`; `isPrivate` tự đồng bộ = `visibility !== 'public'`.
+- Luật "ai được xem" gom về `utils/videoAccess.js`: bản nháp và video hẹn giờ chưa tới giờ chỉ chủ thấy; video **bạn bè** chỉ chủ + người theo dõi lẫn nhau thấy (trang video, hồ sơ, feed Đang theo dõi, bình luận, lưu, báo cáo).
+- Video hẹn giờ: tới giờ thì tự gửi thông báo tag (server chạy kiểm tra mỗi phút). Lồng tiếng tự động các ngôn ngữ đã chọn khi video xử lý xong / khi đăng bản nháp (`services/autoDubbing.service.js`).
+- `GET /users/me/drafts`; `GET /users/:id/videos?sort=popular`; `likeTotal` trên hồ sơ; `author.isFollowing` trên video; `PATCH /videos/:id` nhận `visibility`, `isDraft` (nút "Đăng ngay" cho bản nháp).
+- Sửa lỗi: sửa tiêu đề video làm mất người được gắn thẻ bằng ô "Gắn thẻ".
+- Test: thêm `tests/integration/newUi.int.test.js` (17 test), sửa test theo dõi. Tổng **800/800** test chạy qua.
+
+### Còn tồn đọng
+- Xoá tay `frontend/src/components/video/ReportSheet.jsx`.
+- Model phân loại bình luận đã train: cần đường dẫn + loại model để cắm vào `ai-service/moderation_model`.
+
+---
+
 ## 08/11/2026 (Chủ Nhật)
 
 ### Báo cáo video

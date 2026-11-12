@@ -26,23 +26,23 @@ const SERIES_METRICS = [
 ];
 
 const INSIGHT_STYLE = {
-  good: { Icon: CheckCircle2, color: '#6fd36f', label: 'Tốt' },
-  warn: { Icon: AlertTriangle, color: '#fab219', label: 'Cần cải thiện' },
-  info: { Icon: Info, color: '#a39c8f', label: 'Thông tin' },
+  good: { Icon: CheckCircle2, color: 'rgb(var(--success))', label: 'Tốt' },
+  warn: { Icon: AlertTriangle, color: 'rgb(var(--warn))', label: 'Cần cải thiện' },
+  info: { Icon: Info, color: 'rgb(var(--fg-muted))', label: 'Thông tin' },
 };
 
 /** So sánh với trung bình kênh: mũi tên + chữ (không chỉ dựa vào màu) */
 function VsChannel({ value, base, format, lowerIsBetter = false, enough }) {
   if (!enough || value === null || value === undefined || base === null || base === undefined) {
-    return <span className="text-paper-mute">Chưa đủ dữ liệu kênh để so sánh</span>;
+    return <span className="text-fg-subtle">Chưa đủ dữ liệu kênh để so sánh</span>;
   }
   const diff = Math.round((value - base) * 10) / 10;
-  if (Math.abs(diff) < 0.05) return <span className="text-paper-mute">Bằng TB kênh ({format(base)})</span>;
+  if (Math.abs(diff) < 0.05) return <span className="text-fg-subtle">Bằng TB kênh ({format(base)})</span>;
   const higher = diff > 0;
   const good = lowerIsBetter ? !higher : higher;
   const Icon = higher ? ArrowUpRight : ArrowDownRight;
   return (
-    <span className="inline-flex items-center gap-1" style={{ color: good ? '#6fd36f' : '#ef8a8a' }}>
+    <span className="inline-flex items-center gap-1" style={{ color: good ? 'rgb(var(--success))' : 'rgb(var(--danger))' }}>
       <Icon size={13} aria-hidden />
       {higher ? 'Cao hơn' : 'Thấp hơn'} TB kênh ({format(base)})
     </span>
@@ -51,10 +51,10 @@ function VsChannel({ value, base, format, lowerIsBetter = false, enough }) {
 
 function QualityTile({ label, value, format, base, lowerIsBetter, enough, hint }) {
   return (
-    <div className="rounded-2xl border border-ink-600 bg-ink-800 p-4">
-      <p className="text-sm font-semibold text-paper-dim">{label}</p>
-      <p className="mt-2 font-mono text-2xl font-bold tracking-tighter">{format(value)}</p>
-      <p className="mt-1.5 text-xs">{base !== undefined ? <VsChannel value={value} base={base} format={format} lowerIsBetter={lowerIsBetter} enough={enough} /> : <span className="text-paper-mute">{hint}</span>}</p>
+    <div className="rounded-2xl border border-line bg-surface p-4">
+      <p className="text-sm font-semibold text-fg-muted">{label}</p>
+      <p className="mt-2 tabular text-2xl font-bold tracking-tighter">{format(value)}</p>
+      <p className="mt-1.5 text-xs">{base !== undefined ? <VsChannel value={value} base={base} format={format} lowerIsBetter={lowerIsBetter} enough={enough} /> : <span className="text-fg-subtle">{hint}</span>}</p>
     </div>
   );
 }
@@ -72,7 +72,7 @@ export default function VideoAnalytics({ mode = 'creator' }) {
 
   const backTo = isAdmin ? '/admin' : '/analytics?tab=content';
   const back = (
-    <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm font-semibold text-paper-dim hover:text-paper">
+    <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm font-semibold text-fg-muted hover:text-fg">
       <ArrowLeft size={16} /> {isAdmin ? 'Quản trị' : 'Nội dung'}
     </Link>
   );
@@ -81,7 +81,7 @@ export default function VideoAnalytics({ mode = 'creator' }) {
     return (
       <div className="mx-auto max-w-[1100px] px-4 pt-6 sm:px-6">
         {back}
-        <p className="mt-12 text-center text-paper-dim">Không tìm thấy video{isAdmin ? '' : ', hoặc video không thuộc kênh của bạn'}.</p>
+        <p className="mt-12 text-center text-fg-muted">Không tìm thấy video{isAdmin ? '' : ', hoặc video không thuộc kênh của bạn'}.</p>
       </div>
     );
   }
@@ -117,13 +117,13 @@ export default function VideoAnalytics({ mode = 'creator' }) {
           <p className="label">Phân tích video</p>
           <h1 className="mt-1 line-clamp-3 text-2xl font-extrabold sm:text-3xl">{v ? v.title : '…'}</h1>
           {v && (
-            <p className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-paper-dim">
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-fg-muted">
               {v.isPrivate && <span className="inline-flex items-center gap-1"><Lock size={13} /> Riêng tư ·</span>}
               Đăng {timeAgo(v.createdAt)} · dài {fmtSeconds(v.durationSec)} · {formatCount(v.totalViews)} lượt xem tích luỹ
             </p>
           )}
           {v && (
-            <Link to={`/watch/${v._id}`} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-lime hover:underline">
+            <Link to={`/watch/${v._id}`} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-brand-text hover:underline">
               Xem video <ExternalLink size={13} />
             </Link>
           )}
@@ -138,12 +138,12 @@ export default function VideoAnalytics({ mode = 'creator' }) {
       {isAdmin && data && (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Panel title="Tác giả">
-            <Link to={`/profile/${data.author.username}`} className="flex items-center gap-3 hover:text-lime">
+            <Link to={`/profile/${data.author.username}`} className="flex items-center gap-3 hover:text-brand-text">
               <Avatar user={data.author} size={48} />
               <span>
                 <span className="block font-bold">{data.author.displayName || data.author.username}</span>
-                <span className="text-sm text-paper-dim">@{data.author.username} · {formatCount(data.author.followerCount || 0)} follower</span>
-                {data.author.bannedAt && <span className="mt-1 block text-xs font-bold text-coral">Tài khoản đang bị khoá</span>}
+                <span className="text-sm text-fg-muted">@{data.author.username} · {formatCount(data.author.followerCount || 0)} follower</span>
+                {data.author.bannedAt && <span className="mt-1 block text-xs font-bold text-danger">Tài khoản đang bị khoá</span>}
               </span>
             </Link>
           </Panel>
@@ -152,12 +152,12 @@ export default function VideoAnalytics({ mode = 'creator' }) {
             subtitle={`Trạng thái: ${MOD_LABEL[data.moderation.status] || data.moderation.status} · ${data.moderation.reportCount} báo cáo${data.moderation.lastReportAt ? ` · gần nhất ${timeAgo(data.moderation.lastReportAt)}` : ''}`}
             action={
               <div className="flex gap-2">
-                {data.moderation.status !== 'approved' && <button disabled={busy} onClick={() => moderate('approve')} className="btn-ghost !px-3 !py-1.5 text-sm">Duyệt</button>}
-                {data.moderation.status !== 'removed' && <button disabled={busy} onClick={() => moderate('remove')} className="btn-ghost !px-3 !py-1.5 text-sm !text-coral">Gỡ video</button>}
+                {data.moderation.status !== 'approved' && <button disabled={busy} onClick={() => moderate('approve')} className="btn-outline !px-3 !py-1.5 text-sm">Duyệt</button>}
+                {data.moderation.status !== 'removed' && <button disabled={busy} onClick={() => moderate('remove')} className="btn-outline !px-3 !py-1.5 text-sm !text-danger">Gỡ video</button>}
               </div>
             }
           >
-            {data.moderation.flagReason && <p className="mb-3 flex items-center gap-1.5 text-sm text-paper-dim"><ShieldAlert size={15} /> {data.moderation.flagReason}</p>}
+            {data.moderation.flagReason && <p className="mb-3 flex items-center gap-1.5 text-sm text-fg-muted"><ShieldAlert size={15} /> {data.moderation.flagReason}</p>}
             <BarList items={data.moderation.reportsByReason.map((r) => ({ label: REASON_LABEL[r.reason], value: r.count }))} empty="Video chưa bị báo cáo" />
           </Panel>
         </div>
@@ -227,7 +227,7 @@ export default function VideoAnalytics({ mode = 'creator' }) {
               xFormat={(x) => `${x}%`}
               tooltipTitle={(x) => `Tại ${x}% thời lượng${v?.durationSec ? ` (~${fmtSeconds((v.durationSec * x) / 100)})` : ''}`}
             />
-          ) : data ? <p className="py-10 text-center text-sm text-paper-mute">Chưa có dữ liệu giữ chân</p> : <div className="skeleton h-[220px] rounded-2xl" />}
+          ) : data ? <p className="py-10 text-center text-sm text-fg-subtle">Chưa có dữ liệu giữ chân</p> : <div className="skeleton h-[220px] rounded-2xl" />}
         </Panel>
         <Panel title="7 ngày đầu sau khi đăng" subtitle="Đà tăng lượt xem ban đầu">
           {data ? (
@@ -248,8 +248,8 @@ export default function VideoAnalytics({ mode = 'creator' }) {
       </div>
 
       {v && (
-        <p className="mt-5 text-sm text-paper-dim">
-          Tổng cộng từ khi đăng: <b className="font-mono text-paper">{fmtNumber(v.likes)}</b> thích · <b className="font-mono text-paper">{fmtNumber(v.comments)}</b> bình luận · <b className="font-mono text-paper">{fmtNumber(v.shares)}</b> chia sẻ
+        <p className="mt-5 text-sm text-fg-muted">
+          Tổng cộng từ khi đăng: <b className="tabular text-fg">{fmtNumber(v.likes)}</b> thích · <b className="tabular text-fg">{fmtNumber(v.comments)}</b> bình luận · <b className="tabular text-fg">{fmtNumber(v.shares)}</b> chia sẻ
           {v.hashtags?.length > 0 && <> · {v.hashtags.map((t) => `#${t}`).join(' ')}</>}
         </p>
       )}

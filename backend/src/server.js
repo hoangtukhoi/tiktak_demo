@@ -37,6 +37,11 @@ async function main() {
     startDubbingWorker();
   }
 
+  // Video hẹn giờ tới giờ đăng → gửi thông báo tag (@). Chốt nguyên tử trong DB nên
+  // chạy ở nhiều tiến trình cùng lúc cũng chỉ gửi 1 lần.
+  const { publishDueVideos } = require('./services/video.service');
+  setInterval(() => publishDueVideos().catch((err) => console.error('[scheduler]', err.message)), 60 * 1000).unref();
+
   server.listen(PORT, () => {
     console.log(` Server running on http://localhost:${PORT}`);
   });

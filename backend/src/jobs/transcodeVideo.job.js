@@ -13,6 +13,8 @@ const notificationService = require('../services/notification.service');
 const { emitToUser } = require('../sockets/notification.socket');
 const { setProgress } = require('./queue');
 
+const { queueAutoDubbing } = require('../services/autoDubbing.service');
+
 // fluent-ffmpeg tự đọc biến môi trường FFMPEG_PATH / FFPROBE_PATH nếu ffmpeg
 // không nằm trong PATH (Windows: VD C:\ffmpeg\bin\ffmpeg.exe).
 
@@ -127,7 +129,8 @@ async function processTranscodeJob(job) {
       if (meta && !meta.hasVideo) throw new Error('File tải lên không có luồng video');
 
       await report(25, 'Đang tạo ảnh bìa');
-      const thumbLocal = await extractThumbnail(localSource, workDir);
+      // Ảnh bìa người đăng tự chọn thì giữ nguyên
+      const thumbLocal = video.customThumbnail && thumbnailUrl ? null : await extractThumbnail(localSource, workDir);
       if (thumbLocal && fs.existsSync(thumbLocal)) {
         thumbnailUrl = await storageService.uploadFile(
           `${videoId}/thumb-${Date.now()}.jpg`,
@@ -212,6 +215,10 @@ async function processTranscodeJob(job) {
         await require('../services/video.service')
           .notifyVideoMentions(readyVideo)
           .catch((err) => console.warn('[transcode] mention notify failed:', err.message));
+      }
+      // Lồng tiếng tự động các ngôn ngữ đã chọn lúc tải lên (bản nháp thì chờ tới khi đăng)
+      if (readyVideo?.dubLangs?.length && !readyVideo.isDraft) {
+        await queueAutoDubbing(readyVideo).catch((err) => console.warn('[transcode] auto dubbing failed:', err.message));
       }
     }
 

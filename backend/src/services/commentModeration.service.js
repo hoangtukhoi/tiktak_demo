@@ -1,10 +1,10 @@
 /**
- * Kiểm duyệt bình luận tự động / bán tự động.
+ * Kiểm duyệt bình luận bằng model NLP — 3 mức.
  *
- * Luồng: bình luận mới → chấm điểm vi phạm (0–1) → quyết định trạng thái:
- *   - approved: hiện ngay
- *   - pending:  ẩn với mọi người (trừ tác giả), vào hàng chờ cho admin duyệt
- *   - rejected: ẩn luôn (chỉ ở chế độ "auto", điểm rất cao)
+ * Luồng: bình luận mới → model chấm điểm vi phạm (0–1) → quyết định trạng thái:
+ *   - điểm thấp  (< REVIEW)          → approved: hiện ngay
+ *   - điểm vừa   (REVIEW ≤ … < REJECT) → pending:  ẩn với mọi người (trừ người viết), chờ admin duyệt
+ *   - điểm cao   (≥ REJECT)           → rejected: ẩn luôn (admin vẫn xem lại và khôi phục được)
  *
  * Nguồn chấm điểm:
  *   1. Model phân loại bình luận chạy trong ai-service (POST /moderate/comments)
@@ -12,9 +12,9 @@
  *      (chỉ đưa vào hàng chờ, không bao giờ tự ẩn hẳn)
  *
  * Biến môi trường (backend/.env):
- *   COMMENT_MODERATION_MODE      off | semi | auto      (mặc định semi)
+ *   COMMENT_MODERATION_MODE      auto (mặc định, đủ 3 mức) | semi (không tự ẩn, điểm cao cũng chờ duyệt) | off
  *   COMMENT_REVIEW_THRESHOLD     điểm ≥ ngưỡng → chờ duyệt (mặc định 0.5)
- *   COMMENT_REJECT_THRESHOLD     điểm ≥ ngưỡng → tự ẩn ở chế độ auto (mặc định 0.85)
+ *   COMMENT_REJECT_THRESHOLD     điểm ≥ ngưỡng → ẩn luôn (mặc định 0.85)
  *   COMMENT_MODERATION_TIMEOUT_MS thời gian chờ AI service (mặc định 2500)
  */
 const aiClient = require('./ai/aiClient');
@@ -24,7 +24,7 @@ const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== undefined
 const config = () => ({
   mode: ['off', 'semi', 'auto'].includes(process.env.COMMENT_MODERATION_MODE)
     ? process.env.COMMENT_MODERATION_MODE
-    : 'semi',
+    : 'auto',
   review: num(process.env.COMMENT_REVIEW_THRESHOLD, 0.5),
   reject: num(process.env.COMMENT_REJECT_THRESHOLD, 0.85),
   timeoutMs: num(process.env.COMMENT_MODERATION_TIMEOUT_MS, 2500),
@@ -120,4 +120,20 @@ async function moderate(text) {
   return { status: decide(result), ...result };
 }
 
-module.exports = { moderate, classify, decide, keywordScore, config };
+/**
+ * Tình trạng bộ kiểm duyệt cho trang admin: đang chạy bằng model hay bộ lọc từ khoá.
+ * engine: 'model' | 'keyword' | 'off'
+ */
+async function status() {
+  const { mode, review, reject } = config();
+  const base = { mode, reviewThreshold: review, rejectThreshold: reject };
+  if (mode === 'off') return { ...base, engine: 'off' };
+  if (aiClient.isMock()) return { ...base, engine: 'keyword', reason: 'AI_MOCK đang bật' };
+  const h = await aiClient.health();
+  if (!h.available) return { ...base, engine: 'keyword', reason: 'AI service không chạy' };
+  if (!h.moderation_configured) return { ...base, engine: 'keyword', reason: 'Chưa có model trong ai-service/moderation_model' };
+  if (h.moderation_error && !h.moderation_loaded) return { ...base, engine: 'keyword', reason: `Model lỗi: ${h.moderation_error}` };
+  return { ...base, engine: 'model', model: h.moderation_model || null, labels: h.moderation_labels || [], loaded: Boolean(h.moderation_loaded) };
+}
+
+module.exports = { moderate, classify, decide, keywordScore, config, status };

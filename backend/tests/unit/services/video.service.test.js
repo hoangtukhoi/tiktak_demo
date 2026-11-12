@@ -4,6 +4,7 @@ const model = () => ({
   find: jest.fn(), findById: jest.fn(), findOne: jest.fn(), findOneAndUpdate: jest.fn(),
   findByIdAndUpdate: jest.fn(), findByIdAndDelete: jest.fn(), create: jest.fn(),
   exists: jest.fn(), updateOne: jest.fn(), deleteMany: jest.fn(), aggregate: jest.fn(),
+  countDocuments: jest.fn().mockResolvedValue(0),
 });
 jest.mock('../../../src/models/Video', () => model());
 jest.mock('../../../src/models/Like', () => model());
@@ -196,6 +197,16 @@ describe('getVideoById — ma trận quyền xem', () => {
 
 describe('recordView — chuẩn hoá số liệu xem', () => {
   const DURATION = 10000; // video 10 giây
+  beforeEach(() => {
+    // Video công khai → qua bước kiểm tra "người này có xem được video không"
+    Video.findById.mockReturnValue(queryChain({ _id: VID, userId: OWNER, status: 'ready' }));
+  });
+
+  test('video riêng tư của người khác → 404, không tăng lượt xem', async () => {
+    Video.findById.mockReturnValue(queryChain({ _id: VID, userId: OWNER, status: 'ready', isPrivate: true, visibility: 'private' }));
+    await rejectsWith(service.recordView(VID, { viewerId: VIEWER }), 404);
+    expect(Video.findOneAndUpdate).not.toHaveBeenCalled();
+  });
   const view = async (opts, videoDur = DURATION) => {
     Video.findOneAndUpdate.mockReturnValue(leanResult({ _id: VID, userId: OWNER, durationMs: videoDur }));
     ViewEvent.create.mockResolvedValue({});
@@ -301,7 +312,8 @@ describe('recordView — chuẩn hoá số liệu xem', () => {
 
 describe('recordShare', () => {
   const share = async (opts) => {
-    Video.exists.mockResolvedValue({ _id: VID });
+    // Video công khai, đã xử lý xong → ai cũng chia sẻ được
+    Video.findById.mockReturnValue(queryChain({ _id: VID, userId: OWNER, status: 'ready', shareCount: 7 }));
     Video.findOneAndUpdate.mockReturnValue(leanResult({ _id: VID, userId: OWNER, shareCount: 7 }));
     return service.recordShare(VID, opts);
   };
@@ -313,7 +325,6 @@ describe('recordShare', () => {
   test('tài khoản đã chia sẻ trước đó (khoá Redis đã có) → không tăng bộ đếm, không ghi ShareEvent', async () => {
     const redis = require('../../../src/config/redis');
     redis.set.mockResolvedValueOnce(null);
-    Video.findById.mockReturnValue(queryChain({ shareCount: 7 }));
     await expect(share({ userId: VIEWER })).resolves.toEqual({ shareCount: 7, counted: false });
     expect(Video.findOneAndUpdate).not.toHaveBeenCalled();
     expect(ShareEvent.create).not.toHaveBeenCalled();
@@ -344,7 +355,7 @@ describe('recordShare', () => {
   });
 
   test('video không sẵn sàng → 404', async () => {
-    Video.exists.mockResolvedValue(null);
+    Video.findById.mockReturnValue(queryChain({ _id: VID, userId: OWNER, status: "processing" }));
     await rejectsWith(service.recordShare(VID, {}), 404);
   });
 });
@@ -398,13 +409,14 @@ describe('updateVideo — chỉ cho sửa trường trong whitelist', () => {
     });
     const [filter, update] = Video.findOneAndUpdate.mock.calls[0];
     expect(filter).toEqual({ _id: VID, userId: OWNER });
-    expect(update).toEqual({ title: 'Mới', isPrivate: true, mentions: [] });
+    // isPrivate (client cũ) → suy ra visibility
+    expect(update).toEqual({ title: 'Mới', isPrivate: true, visibility: 'private', mentions: [] });
   });
 
   test('giá trị falsy (isPrivate=false, title="") vẫn được cập nhật', async () => {
     Video.findOneAndUpdate.mockReturnValue({ populate: jest.fn().mockResolvedValue({ _id: VID }) });
     await service.updateVideo(VID, OWNER, { isPrivate: false, allowComment: false });
-    expect(Video.findOneAndUpdate.mock.calls[0][1]).toEqual({ isPrivate: false, allowComment: false });
+    expect(Video.findOneAndUpdate.mock.calls[0][1]).toEqual({ isPrivate: false, visibility: 'public', allowComment: false });
   });
 
   test('không phải chủ video → 404', async () => {

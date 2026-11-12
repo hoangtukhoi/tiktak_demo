@@ -42,7 +42,7 @@ export default function AuthCallback() {
   return (
     <AuthShell title={error ? 'Chưa đăng nhập được' : 'Đang đăng nhập…'} subtitle={error || 'Đang xác nhận tài khoản Google của bạn.'}>
       {error ? (
-        <Link to="/login" replace className="btn mt-8 w-full !py-3.5">Quay lại đăng nhập</Link>
+        <Link to="/login" replace className="btn-primary mt-8 w-full !py-3.5">Quay lại đăng nhập</Link>
       ) : (
         <div className="mt-10 flex justify-center"><Spinner /></div>
       )}

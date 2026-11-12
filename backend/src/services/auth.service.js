@@ -46,7 +46,8 @@ exports.login = async (email, password) => {
   if (!user || !(await user.comparePassword(password)))
     throw Object.assign(new Error('Email hoặc mật khẩu không đúng'), { statusCode: 401 });
   if (user.bannedAt)
-    throw Object.assign(new Error('Tài khoản đã bị khoá'), { statusCode: 403 });
+    // Đúng mật khẩu rồi mới cho biết lý do khoá
+    throw Object.assign(new Error(user.banReason ? `Tài khoản đã bị khoá. Lý do: ${user.banReason}` : 'Tài khoản đã bị khoá'), { statusCode: 403, code: 'banned' });
   const tokens = generateTokens(user._id, user.role);
   await addSession(user._id, tokens.refreshToken, { lastLoginAt: new Date() });
   return { user, ...tokens };
@@ -74,6 +75,26 @@ exports.refreshToken = async (token) => {
 };
 exports.logout = async (userId, refreshToken) => {
   await User.findByIdAndUpdate(userId, { $pull: { refreshTokens: refreshToken } });
+};
+/**
+ * Đổi mật khẩu: kiểm tra mật khẩu cũ (nếu tài khoản đã có), lưu mật khẩu mới (hook pre-save tự hash),
+ * thu hồi toàn bộ phiên đăng nhập khác và cấp token mới cho phiên hiện tại.
+ */
+exports.changePassword = async (userId, currentPassword, newPassword) => {
+  const user = await User.findById(userId).select('+password');
+  if (!user) throw Object.assign(new Error('Không tìm thấy người dùng'), { statusCode: 404 });
+  if (user.password) {
+    if (!currentPassword)
+      throw Object.assign(new Error('Vui lòng nhập mật khẩu hiện tại'), { statusCode: 400 });
+    if (!(await user.comparePassword(currentPassword)))
+      throw Object.assign(new Error('Mật khẩu hiện tại không đúng'), { statusCode: 400 });
+  }
+  user.password = newPassword;
+  await user.save();
+  const tokens = generateTokens(user._id, user.role);
+  // Đăng xuất mọi thiết bị khác: thay toàn bộ refreshTokens bằng token mới
+  await User.updateOne({ _id: user._id }, { $set: { refreshTokens: [tokens.refreshToken] } });
+  return tokens;
 };
 // ── Đăng nhập Google ────────────────────────────────────────────────────────
 

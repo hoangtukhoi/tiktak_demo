@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     moderation_label_names: str = ""
     moderation_max_length: int = 256
     moderation_lowercase: bool = False
+    # Tách từ trước khi đưa vào model: auto (theo config.json của model) | none | pyvi
+    moderation_word_segmenter: str = "auto"
     moderation_device: str = "auto"  # auto | cpu
     moderation_max_batch: int = 64
 

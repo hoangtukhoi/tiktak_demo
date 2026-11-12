@@ -2,53 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------- Design tokens ----------
+   Brand: "son" (đỏ son / vermilion) — màu dấu triện, gợi nhịp kim đồng hồ "tik tak".
+   Neutral ấm, một màu nhấn duy nhất; trạng thái (danger/success/warn) chỉ dùng cho phản hồi. */
 @layer base {
-  :root { color-scheme: dark; }
-  html, body, #root { height: 100%; }
-  body {
-    @apply bg-ink text-paper font-sans antialiased;
-    overflow: hidden;
-    font-optical-sizing: auto;
+  :root {
+    color-scheme: light;
+    --bg: 251 250 248;
+    --surface: 255 255 255;
+    --surface-2: 244 242 238;
+    --surface-3: 233 230 224;
+    --line: 229 225 218;
+    --fg: 26 23 20;
+    --fg-muted: 104 97 88;
+    --fg-subtle: 148 141 132;
+    --brand: 214 58 31;        /* nút: chữ trắng đạt 4.7:1 */
+    --brand-hover: 188 47 24;
+    --brand-text: 191 50 24;   /* chữ/icon màu brand trên nền sáng */
+    --brand-soft: 252 233 227;
+    --danger: 196 38 46;
+    --success: 22 128 78;
+    --warn: 176 108 0;
   }
-  ::selection { @apply bg-lime text-ink; }
-  h1, h2, h3 { letter-spacing: -0.035em; line-height: 1.02; }
-  :focus-visible { outline: 2px solid theme('colors.lime.DEFAULT'); outline-offset: 2px; border-radius: 8px; }
+  .dark {
+    color-scheme: dark;
+    --bg: 14 13 12;
+    --surface: 23 22 20;
+    --surface-2: 33 31 28;
+    --surface-3: 45 42 38;
+    --line: 44 41 37;
+    --fg: 242 239 234;
+    --fg-muted: 160 153 144;
+    --fg-subtle: 114 108 100;
+    --brand: 214 58 31;
+    --brand-hover: 232 74 44;
+    --brand-text: 255 122 92;
+    --brand-soft: 56 26 18;
+    --danger: 255 99 99;
+    --success: 74 205 140;
+    --warn: 240 176 64;
+  }
+
+  html, body, #root { height: 100%; }
+  body { @apply bg-bg font-sans text-base text-fg antialiased; overflow: hidden; }
+  h1, h2, h3 { @apply font-bold tracking-tight; }
+  ::selection { background: rgb(var(--brand) / .25); }
+  :focus-visible { outline: 2px solid rgb(var(--brand)); outline-offset: 2px; }
   input, textarea, select { font: inherit; }
+  .tabular { font-variant-numeric: tabular-nums; }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-lime px-5 py-2.5 font-bold text-ink
-           transition duration-300 ease-spring hover:-translate-y-0.5 hover:-rotate-1 active:scale-95
-           disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded px-4 text-sm font-semibold
+           transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50;
   }
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 font-semibold text-paper
-           ring-1 ring-inset ring-ink-500 transition duration-300 ease-out hover:bg-ink-700 active:scale-95
-           disabled:pointer-events-none disabled:opacity-50;
+  .btn-primary { @apply btn bg-brand text-white hover:bg-brand-hover; }
+  .btn-secondary { @apply btn bg-surface-2 text-fg hover:bg-surface-3; }
+  .btn-outline { @apply btn border border-line bg-surface text-fg hover:bg-surface-2; }
+  .btn-ghost { @apply btn text-fg hover:bg-surface-2; }
+  .btn-sm { @apply h-8 px-3 text-xs; }
+  .icon-btn {
+    @apply inline-grid h-9 w-9 shrink-0 place-items-center rounded text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg;
   }
   .input {
-    @apply w-full rounded-2xl border border-ink-500 bg-ink-800 px-4 py-3 text-paper placeholder:text-paper-mute
-           outline-none transition duration-200 focus:border-lime focus:ring-4 focus:ring-lime/15;
+    @apply h-10 w-full rounded border border-line bg-surface px-3 text-base text-fg placeholder:text-fg-subtle
+           outline-none transition-colors duration-150 focus:border-brand focus:ring-2 focus:ring-brand/20
+           disabled:opacity-60;
   }
-  .label { @apply font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-paper-dim; }
-  .card { @apply rounded-3xl border border-ink-600 bg-ink-800; }
+  textarea.input { @apply h-auto py-2.5; }
+  .label { @apply mb-1.5 block text-sm font-semibold text-fg; }
+  .hint { @apply mt-1 text-xs text-fg-muted; }
+  .card { @apply rounded-lg border border-line bg-surface; }
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-ink-500 bg-ink-800 px-3.5 py-1.5 text-sm font-semibold
-           transition duration-300 ease-out hover:-translate-y-0.5 hover:border-lime hover:bg-lime hover:text-ink;
+    @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-sm font-medium text-fg
+           transition-colors duration-150 hover:bg-surface-2;
   }
+  .chip-active { @apply border-fg bg-fg text-bg hover:bg-fg; }
   .skeleton {
-    background: linear-gradient(100deg, theme('colors.ink.700') 30%, theme('colors.ink.600') 50%, theme('colors.ink.700') 70%);
+    background: linear-gradient(100deg, rgb(var(--surface-2)) 30%, rgb(var(--surface-3)) 50%, rgb(var(--surface-2)) 70%);
     background-size: 200% 100%;
     @apply animate-shimmer;
   }
-  .grain::after {
-    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .14; mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-  }
+  .tab { @apply relative -mb-px border-b-2 border-transparent px-1 pb-3 pt-1 text-base font-semibold text-fg-muted transition-colors hover:text-fg; }
+  .tab-active { @apply border-fg text-fg; }
   .no-scrollbar { scrollbar-width: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
-  .text-shadow { text-shadow: 0 1px 12px rgb(0 0 0 / .55); }
+  .text-shadow { text-shadow: 0 1px 2px rgb(0 0 0 / .45); }
 }
 
 @media (prefers-reduced-motion: reduce) {

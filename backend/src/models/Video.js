@@ -10,6 +10,8 @@ const videoSchema = new mongoose.Schema(
     originalUrl: { type: String, default: null },  // file gốc trên S3
     hlsUrl: { type: String, default: null },        // master.m3u8
     thumbnailUrl: { type: String, default: null },
+    // Người đăng tự chọn ảnh bìa → bước transcode không tự tạo ảnh bìa đè lên
+    customThumbnail: { type: Boolean, default: false },
     // Metadata
     durationMs: { type: Number, default: 0 },
     width: { type: Number, default: 0 },
@@ -28,6 +30,10 @@ const videoSchema = new mongoose.Schema(
       default: 'pending',
     },
     flagReason: { type: String, default: null },
+    // Lý do admin gỡ video (hiện cho chủ video trong thông báo)
+    removeReason: { type: String, default: null, maxlength: 300 },
+    // Chủ video đang bị khoá tài khoản → video ẩn với mọi người (đặt lúc khoá / gỡ lúc mở khoá)
+    authorBanned: { type: Boolean, default: false },
     reportCount: { type: Number, default: 0 },
     // Tương tác
     viewCount: { type: Number, default: 0 },
@@ -45,7 +51,21 @@ const videoSchema = new mongoose.Schema(
       },
     ],
     // Cài đặt
+    // Ai được xem: public = mọi người | friends = bạn bè (theo dõi lẫn nhau) | private = chỉ mình tôi.
+    // isPrivate được tự đồng bộ = (visibility !== 'public') để mọi truy vấn "công khai" cũ
+    // (isPrivate: false) tự loại video bạn bè / riêng tư khỏi feed, tìm kiếm...
+    visibility: { type: String, enum: ['public', 'friends', 'private'], default: undefined },
     isPrivate: { type: Boolean, default: false },
+    // Bản nháp: chỉ chủ video thấy (tab "Bản nháp" trên hồ sơ)
+    isDraft: { type: Boolean, default: false },
+    // Hẹn giờ đăng: trước thời điểm này video chỉ chủ video thấy; null = đăng ngay
+    scheduledAt: { type: Date, default: null },
+    // Đã gửi thông báo tag (@) cho video hẹn giờ lúc tới giờ đăng chưa
+    scheduledNotifiedAt: { type: Date, default: null },
+    // Tuỳ chọn AI khi tải lên
+    sourceLang: { type: String, default: 'vi', maxlength: 10 },
+    autoCaption: { type: Boolean, default: false },
+    dubLangs: [{ type: String, maxlength: 10 }],
     // Ghim lên đầu hồ sơ (tối đa 3 video / người); null = không ghim
     pinnedAt: { type: Date, default: null },
     allowComment: { type: Boolean, default: true },
@@ -57,6 +77,26 @@ const videoSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/**
+ * Đồng bộ visibility ↔ isPrivate:
+ *  - có visibility → isPrivate = visibility !== 'public'
+ *  - video cũ chỉ có isPrivate → visibility = private | public
+ */
+videoSchema.statics.syncVisibility = function syncVisibility(doc) {
+  if (doc.visibility) doc.isPrivate = doc.visibility !== 'public';
+  else if (typeof doc.isPrivate === 'boolean') doc.visibility = doc.isPrivate ? 'private' : 'public';
+  return doc;
+};
+videoSchema.pre('validate', function syncVisibilityHook(next) {
+  if (this.isModified('visibility') || this.isNew) {
+    if (!this.visibility) this.visibility = this.isPrivate ? 'private' : 'public';
+    this.isPrivate = this.visibility !== 'public';
+  } else if (this.isModified('isPrivate')) {
+    this.visibility = this.isPrivate ? 'private' : 'public';
+  }
+  next();
+});
 
 // Index tìm kiếm
 videoSchema.index({ title: 'text', description: 'text', hashtags: 'text' });

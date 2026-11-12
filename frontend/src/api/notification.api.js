@@ -19,6 +19,14 @@ const MENTION_VERB = {
   video: 'đã nhắc đến bạn trong video',
 };
 
+// Admin / kiểm duyệt viên đã xử lý nội dung của bạn (type 'moderation')
+const MODERATION_TEXT = {
+  video_removed: 'Video của bạn đã bị gỡ vì vi phạm tiêu chuẩn cộng đồng',
+  video_restored: 'Video của bạn đã được khôi phục',
+  comment_hidden: 'Bình luận của bạn đã bị ẩn vì vi phạm tiêu chuẩn cộng đồng',
+  comment_restored: 'Bình luận của bạn đã được duyệt và hiện công khai',
+};
+
 /** Notification model: { type, payload:{actorUsername, videoId, message, context...}, isRead } */
 export const normalizeNotification = (n) => {
   const p = n.payload || {};
@@ -26,6 +34,10 @@ export const normalizeNotification = (n) => {
   if (n.type === 'mention' || n.type === 'new_comment') {
     const verb = n.type === 'mention' ? MENTION_VERB[p.context] || VERB.mention : VERB.new_comment;
     text = p.message ? `${verb}: “${p.message}”` : verb;
+  } else if (n.type === 'moderation') {
+    text = MODERATION_TEXT[p.context] || 'Nội dung của bạn đã được đội kiểm duyệt xem xét';
+    if (p.excerpt) text += `: “${p.excerpt}”`;
+    if (p.reason) text += ` — Lý do: ${p.reason}`;
   } else {
     text = p.message || VERB[n.type] || 'Thông báo mới';
   }
@@ -34,7 +46,8 @@ export const normalizeNotification = (n) => {
     isRead: n.isRead ?? n.read ?? false,
     actor: p.actorUsername || null,
     text,
-    videoId: p.videoId || null,
+    // Video đã bị gỡ thì không mở được nữa → không gắn link
+    videoId: n.type === 'moderation' && p.context === 'video_removed' ? null : p.videoId || null,
   };
 };
 

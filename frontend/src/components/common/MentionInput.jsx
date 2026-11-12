@@ -94,9 +94,9 @@ const MentionInput = forwardRef(function MentionInput(
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className={`absolute left-0 right-0 z-30 max-h-64 overflow-y-auto rounded-2xl border border-ink-600 bg-ink-800 p-1.5 shadow-2xl shadow-black/60 ${placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}
+            className={`absolute left-0 right-0 z-30 max-h-64 overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-2xl shadow-black/60 ${placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}
           >
-            {loading && !items.length && <li className="px-3 py-2.5 text-sm text-paper-mute">Đang tìm…</li>}
+            {loading && !items.length && <li className="px-3 py-2.5 text-sm text-fg-subtle">Đang tìm…</li>}
             {items.map((u, i) => (
               <li key={u._id} role="option" aria-selected={i === active}>
                 <button
@@ -104,15 +104,15 @@ const MentionInput = forwardRef(function MentionInput(
                   onMouseDown={(e) => e.preventDefault()} // giữ focus ở ô nhập
                   onClick={() => pick(u)}
                   onMouseEnter={() => setActive(i)}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${i === active ? 'bg-ink-600' : ''}`}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${i === active ? 'bg-surface-3' : ''}`}
                 >
                   <Avatar user={u} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1 truncate text-sm font-bold">
                       {u.displayName || u.username}
-                      {u.isVerified && <BadgeCheck size={13} className="shrink-0 text-lime" />}
+                      {u.isVerified && <BadgeCheck size={13} className="shrink-0 text-brand-text" />}
                     </span>
-                    <span className="block truncate font-mono text-[11px] text-paper-mute">@{u.username} · {formatCount(u.followerCount || 0)} follower</span>
+                    <span className="block truncate tabular text-[11px] text-fg-subtle">@{u.username} · {formatCount(u.followerCount || 0)} follower</span>
                   </span>
                 </button>
               </li>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
 
 const OUTPUT_SIZE = 512; // ảnh xuất ra: 512×512 (backend cũng lưu ở cỡ này)
-const LIME = '#d9ff3f';
+const LIME = 'rgb(var(--brand))';
 
 // Style inline (không phụ thuộc class Tailwind sinh động)
 const CIRCLE_MASK = {
@@ -161,14 +161,14 @@ export default function AvatarCropper({ src, onCancel, onApply }) {
 
   const renderPreview = (size, label) => (
     <div key={label} className="flex flex-col items-center gap-1.5">
-      <div className="relative overflow-hidden rounded-full bg-ink-700 ring-1 ring-ink-500" style={{ width: size, height: size }}>
+      <div className="relative overflow-hidden rounded-full bg-surface-2 ring-1 ring-line" style={{ width: size, height: size }}>
         {nat && (
           <div className="absolute left-0 top-0" style={{ width: view, height: view, transform: `scale(${size / view})`, transformOrigin: '0 0' }}>
             <img src={src} alt="" draggable={false} style={imgStyle} />
           </div>
         )}
       </div>
-      <span className="font-mono text-[10px] text-paper-mute">{label}</span>
+      <span className="tabular text-[10px] text-fg-subtle">{label}</span>
     </div>
   );
 
@@ -180,7 +180,7 @@ export default function AvatarCropper({ src, onCancel, onApply }) {
           tabIndex={0}
           role="application"
           aria-label="Khung cắt ảnh: kéo để di chuyển, cuộn hoặc dùng thanh trượt để phóng to, phím mũi tên để dịch"
-          className="relative cursor-grab touch-none select-none overflow-hidden rounded-2xl bg-ink-900 outline-none focus-visible:ring-2 focus-visible:ring-lime active:cursor-grabbing"
+          className="relative cursor-grab touch-none select-none overflow-hidden rounded-2xl bg-bg outline-none focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing"
           style={{ width: view, height: view, touchAction: 'none' }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -206,16 +206,16 @@ export default function AvatarCropper({ src, onCancel, onApply }) {
           ))}
           {/* Vùng ngoài vòng tròn tối đi: đây là phần sẽ bị cắt bỏ */}
           <div style={CIRCLE_MASK} />
-          {!nat && !error && <span className="absolute inset-0 grid place-items-center text-sm text-paper-mute">Đang tải ảnh…</span>}
+          {!nat && !error && <span className="absolute inset-0 grid place-items-center text-sm text-fg-subtle">Đang tải ảnh…</span>}
         </div>
       </div>
 
       {error ? (
-        <p className="text-center text-sm font-semibold text-coral">{error}</p>
+        <p className="text-center text-sm font-semibold text-danger">{error}</p>
       ) : (
         <>
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setZoomKeep(zoom - 0.2)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink-600" aria-label="Thu nhỏ">
+            <button type="button" onClick={() => setZoomKeep(zoom - 0.2)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-surface-3" aria-label="Thu nhỏ">
               <ZoomOut size={18} />
             </button>
             <input
@@ -229,10 +229,10 @@ export default function AvatarCropper({ src, onCancel, onApply }) {
               style={{ accentColor: LIME }}
               aria-label="Mức phóng to"
             />
-            <button type="button" onClick={() => setZoomKeep(zoom + 0.2)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink-600" aria-label="Phóng to">
+            <button type="button" onClick={() => setZoomKeep(zoom + 0.2)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-surface-3" aria-label="Phóng to">
               <ZoomIn size={18} />
             </button>
-            <button type="button" onClick={rotate} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-ink-600" aria-label="Xoay 90 độ">
+            <button type="button" onClick={rotate} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-surface-3" aria-label="Xoay 90 độ">
               <RotateCw size={18} />
             </button>
           </div>
@@ -248,11 +248,11 @@ export default function AvatarCropper({ src, onCancel, onApply }) {
         </>
       )}
 
-      <p className="text-center text-xs text-paper-mute">Kéo ảnh để căn chỉnh · cuộn chuột hoặc dùng thanh trượt để phóng to</p>
+      <p className="text-center text-xs text-fg-subtle">Kéo ảnh để căn chỉnh · cuộn chuột hoặc dùng thanh trượt để phóng to</p>
 
       <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={onCancel} className="btn-ghost justify-center">Huỷ</button>
-        <button type="button" onClick={apply} disabled={!nat || !!error || busy} className="btn justify-center disabled:opacity-50">
+        <button type="button" onClick={onCancel} className="btn-outline justify-center">Huỷ</button>
+        <button type="button" onClick={apply} disabled={!nat || !!error || busy} className="btn-primary justify-center disabled:opacity-50">
           {busy ? 'Đang xử lý…' : 'Áp dụng'}
         </button>
       </div>

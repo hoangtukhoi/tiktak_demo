@@ -37,7 +37,7 @@ export function RangePills({ value, onChange, options = RANGES }) {
           role="tab"
           aria-selected={value === v}
           onClick={() => onChange(v)}
-          className={`shrink-0 rounded-full px-5 py-2 text-sm font-bold transition ${value === v ? 'bg-paper text-ink' : 'bg-ink-700 text-paper-dim hover:text-paper'}`}
+          className={`shrink-0 rounded-full px-5 py-2 text-sm font-bold transition ${value === v ? 'bg-fg text-bg' : 'bg-surface-2 text-fg-muted hover:text-fg'}`}
         >
           {label}
         </button>

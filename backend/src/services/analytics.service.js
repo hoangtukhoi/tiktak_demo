@@ -10,6 +10,7 @@
  * Kết quả được cache Redis vài phút vì các phép aggregate khá nặng.
  */
 const mongoose = require('mongoose');
+const { publicMatch } = require('../utils/videoAccess');
 const redis = require('../config/redis');
 const User = require('../models/User');
 const Video = require('../models/Video');
@@ -369,7 +370,7 @@ async function adminTopCreators(cur) {
 
 async function adminHashtags(cur) {
   const rows = await Video.aggregate([
-    { $match: { status: 'ready', isPrivate: false, createdAt: cur } },
+    { $match: { ...publicMatch(), createdAt: cur } },
     { $unwind: '$hashtags' },
     { $group: { _id: '$hashtags', videos: { $sum: 1 }, views: { $sum: '$viewCount' }, likes: { $sum: '$likeCount' } } },
     { $sort: { videos: -1, views: -1 } },
@@ -654,7 +655,7 @@ async function buildViewers(userId, days) {
     ]);
     const [users, vids] = await Promise.all([
       User.find({ _id: { $in: cRows.map((r) => r._id) }, bannedAt: null }).select('username displayName avatarUrl isVerified followerCount').lean(),
-      Video.find({ _id: { $in: vRows.map((r) => r._id) }, status: 'ready', isPrivate: false, moderationStatus: { $ne: 'removed' } })
+      Video.find({ _id: { $in: vRows.map((r) => r._id) }, ...publicMatch(), moderationStatus: { $ne: 'removed' } })
         .select('title thumbnailUrl viewCount userId')
         .populate('userId', 'username displayName')
         .lean(),

@@ -167,8 +167,9 @@ describe('GET /api/users/search', () => {
   });
 });
 
-describe('POST /api/users/:username/follow — theo dõi / bỏ theo dõi', () => {
+describe('POST / DELETE /api/users/:id/follow — theo dõi / bỏ theo dõi', () => {
   const follow = (auth, username) => request(app).post(`/api/users/${username}/follow`).set(auth);
+  const unfollow = (auth, username) => request(app).delete(`/api/users/${username}/follow`).set(auth);
   const counts = async (a, b) => {
     const [x, y] = await Promise.all([User.findById(a._id), User.findById(b._id)]);
     return { following: x.followingCount, followers: y.followerCount };
@@ -177,10 +178,28 @@ describe('POST /api/users/:username/follow — theo dõi / bỏ theo dõi', () =
   test('theo dõi rồi bỏ theo dõi → bộ đếm 1 rồi về 0', async () => {
     const a = await createUser();
     const b = await createUser();
-    expect((await follow(a.auth, b.user.username)).body.data).toEqual({ following: true });
+    expect((await follow(a.auth, b.user.username)).body.data).toEqual({ isFollowing: true, following: true, followerCount: 1 });
     expect(await counts(a.user, b.user)).toEqual({ following: 1, followers: 1 });
-    expect((await follow(a.auth, b.user.username)).body.data).toEqual({ following: false });
+    expect((await unfollow(a.auth, b.user.username)).body.data).toEqual({ isFollowing: false, following: false, followerCount: 0 });
     expect(await counts(a.user, b.user)).toEqual({ following: 0, followers: 0 });
+  });
+
+  test('POST lần 2 vẫn là "đang theo dõi" (không bật/tắt); DELETE khi chưa theo dõi không làm âm', async () => {
+    const a = await createUser();
+    const b = await createUser();
+    await follow(a.auth, b.user.username);
+    expect((await follow(a.auth, b.user.username)).body.data.isFollowing).toBe(true);
+    expect(await counts(a.user, b.user)).toEqual({ following: 1, followers: 1 });
+    await unfollow(a.auth, b.user.username);
+    expect((await unfollow(a.auth, b.user.username)).body.data).toMatchObject({ isFollowing: false, followerCount: 0 });
+    expect(await counts(a.user, b.user)).toEqual({ following: 0, followers: 0 });
+  });
+
+  test('nhận cả userId (giao diện mới gọi theo _id)', async () => {
+    const a = await createUser();
+    const b = await createUser();
+    expect((await follow(a.auth, b.user._id)).body.data.isFollowing).toBe(true);
+    expect((await unfollow(a.auth, b.user._id)).body.data.isFollowing).toBe(false);
   });
 
   test('tự theo dõi chính mình → 400', async () => {
@@ -218,14 +237,15 @@ describe('POST /api/users/:username/follow — theo dõi / bỏ theo dõi', () =
     const a = await createUser();
     const b = await createUser();
     await follow(a.auth, b.user.username);
-    await Promise.all([follow(a.auth, b.user.username), follow(a.auth, b.user.username)]);
+    await Promise.all([unfollow(a.auth, b.user.username), unfollow(a.auth, b.user.username)]);
     await consistent(a, b);
+    expect(await counts(a.user, b.user)).toEqual({ following: 0, followers: 0 });
   });
 
-  test('bấm liên tục 5 lần cùng lúc → bộ đếm vẫn khớp', async () => {
+  test('bấm theo dõi / bỏ theo dõi xen kẽ 6 lần cùng lúc → bộ đếm vẫn khớp', async () => {
     const a = await createUser();
     const b = await createUser();
-    await Promise.all(Array.from({ length: 5 }, () => follow(a.auth, b.user.username)));
+    await Promise.all(Array.from({ length: 6 }, (_, i) => (i % 2 ? unfollow : follow)(a.auth, b.user.username)));
     await consistent(a, b);
   });
 });

@@ -12,6 +12,7 @@ const ProfileViewEvent = require('../models/ProfileViewEvent');
 const redis = require('../config/redis');
 const videoService = require('../services/video.service');
 const notificationService = require('../services/notification.service');
+const authService = require('../services/auth.service');
 const { success, error, paginated } = require('../utils/apiResponse');
 const escapeRegex = require('../utils/escapeRegex');
 const Block = require('../models/Block');
@@ -47,9 +48,11 @@ exports.getProfile = async (req, res) => {
     const { username } = req.params;
 
     const user = await findUserByParam(username)
-      .select('-googleId -lastLoginAt -usernameChangedAt')
+      .select('-googleId -lastLoginAt -lastActiveAt -usernameChangedAt')
       .lean();
     if (!user) return error(res, 'User not found', 404);
+    // Tài khoản bị khoá: ẩn hồ sơ với mọi người (admin / kiểm duyệt viên vẫn xem được)
+    if (user.bannedAt && !privacyService.isStaff(req.user)) return error(res, 'User not found', 404);
     // Email chỉ trả cho chính chủ, không lộ trên hồ sơ công khai
     const isOwner = req.user && String(req.user._id) === String(user._id);
     if (!isOwner) delete user.email;
@@ -90,6 +93,7 @@ exports.getProfile = async (req, res) => {
     return success(res, {
       ...user,
       totalLikes,
+      likeTotal: totalLikes, // tên giao diện mới dùng
       videosCount: user.videoCount,
       isFollowing,
       followsYou: rel.followedBy,
@@ -160,6 +164,35 @@ exports.updateProfile = async (req, res) => {
     // Hai người đổi cùng username một lúc → unique index báo trùng
     if (err.code === 11000) return error(res, 'Username này đã có người dùng', 409);
     throw err;
+  }
+};
+
+/**
+ * PATCH /users/me/change-password
+ * Body: { currentPassword, newPassword }
+ * Đổi mật khẩu → { accessToken, refreshToken } mới cho phiên hiện tại; mọi thiết bị khác bị đăng xuất.
+ * Tài khoản đăng nhập bằng Google chưa có mật khẩu thì không cần currentPassword.
+ */
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof newPassword !== 'string' || newPassword.length < 6) {
+    return error(res, 'Mật khẩu mới phải có ít nhất 6 ký tự', 400);
+  }
+  if (newPassword.length > 128) return error(res, 'Mật khẩu mới tối đa 128 ký tự', 400);
+  if (currentPassword !== undefined && currentPassword !== null && typeof currentPassword !== 'string') {
+    return error(res, 'Mật khẩu hiện tại không hợp lệ', 400);
+  }
+  if (currentPassword && currentPassword === newPassword) {
+    return error(res, 'Mật khẩu mới phải khác mật khẩu hiện tại', 400);
+  }
+  try {
+    const tokens = await authService.changePassword(req.user._id, currentPassword, newPassword);
+    return success(res, tokens, 200, 'Đã đổi mật khẩu');
+  } catch (err) {
+    // Lỗi có statusCode là lỗi nghiệp vụ (sai mật khẩu hiện tại...) → trả đúng thông báo
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    console.error('[changePassword]', err);
+    return error(res, 'Không đổi được mật khẩu', 500);
   }
 };
 
@@ -240,11 +273,13 @@ exports.getUserVideos = async (req, res) => {
 
     // Service đã tự lấy limit+1 và tính nextCursor → chỉ cần truyền limit.
     // Truyền thêm id người xem để chủ kênh thấy cả video private của mình.
+    const sort = req.query.sort === 'popular' ? 'popular' : 'latest';
     const { videos, nextCursor } = await videoService.getUserVideos(
       user._id,
       cursor,
       limit,
-      req.user?._id
+      req.user?._id,
+      { sort, role: req.user?.role }
     );
     await videoService.attachViewerFlags(videos, req.user?._id);
 
@@ -268,6 +303,17 @@ exports.getSavedVideos = async (req, res) => {
   const cursor = req.query.cursor ?? req.query.page;
   if (cursor && !/^\d{1,6}$/.test(String(cursor))) return error(res, 'Invalid cursor', 400);
   const { videos, nextCursor } = await videoService.getSavedVideos(req.user._id, cursor, req.query.limit);
+  return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
+};
+
+/**
+ * GET /users/me/drafts?cursor=&limit=
+ * Bản nháp của chính mình.
+ */
+exports.getDrafts = async (req, res) => {
+  const cursor = req.query.cursor ?? req.query.page;
+  if (cursor && !/^\d{1,6}$/.test(String(cursor))) return error(res, 'Invalid cursor', 400);
+  const { videos, nextCursor } = await videoService.getDrafts(req.user._id, cursor, req.query.limit);
   return paginated(res, videos, { nextCursor, hasMore: Boolean(nextCursor) });
 };
 
@@ -418,6 +464,43 @@ exports.removeFollower = async (req, res) => {
 };
 
 /**
+ * POST /users/:username/report — báo cáo tài khoản vi phạm.
+ * Body: { reason, note? }. Mỗi người 1 lần / tài khoản; không báo cáo chính mình hay admin.
+ */
+exports.reportUser = async (req, res) => {
+  try {
+    const ContentReport = require('../models/ContentReport');
+    const { reason, note } = req.body || {};
+    if (!ContentReport.CONTENT_REPORT_REASONS.includes(reason)) return error(res, 'Lý do báo cáo không hợp lệ', 400);
+    if (note !== undefined && note !== null && typeof note !== 'string') return error(res, 'note phải là chuỗi', 400);
+    if (typeof note === 'string' && note.trim().length > 300) return error(res, 'Mô tả tối đa 300 ký tự', 400);
+
+    const target = await findUserByParam(req.params.username, '_id role bannedAt');
+    if (!target || target.bannedAt) return error(res, 'User not found', 404);
+    if (target._id.equals(req.user._id)) return error(res, 'Không thể báo cáo chính bạn', 400);
+    if (target.role === 'admin') return error(res, 'Không thể báo cáo tài khoản này', 400);
+
+    try {
+      await ContentReport.create({
+        targetType: 'user',
+        targetId: target._id,
+        targetUserId: target._id,
+        reporterId: req.user._id,
+        reason,
+        note: (note || '').trim(),
+      });
+    } catch (err) {
+      if (err.code === 11000) return error(res, 'Bạn đã báo cáo tài khoản này rồi', 409);
+      throw err;
+    }
+    return success(res, null, 201, 'Report submitted');
+  } catch (err) {
+    console.error('[reportUser]', err);
+    return error(res, 'Failed to report user', 500);
+  }
+};
+
+/**
  * POST /users/:username/block — chặn: tự bỏ theo dõi 2 chiều, 2 bên không thấy / tương tác được với nhau.
  */
 exports.blockUser = async (req, res) => {
@@ -542,75 +625,69 @@ exports.searchUsers = async (req, res) => {
 };
 
 /**
- * POST /users/:username/follow
- * Toggles follow state for the authenticated user toward the target user.
+ * POST   /users/:id/follow — theo dõi (idempotent: đã theo dõi rồi thì giữ nguyên)
+ * DELETE /users/:id/follow — bỏ theo dõi (idempotent)
+ * :id nhận cả userId lẫn username.
+ * → { isFollowing, following (tên cũ, giữ để tương thích), followerCount }
  *
- * - If already following → unfollow (delete Follow doc, decrement counts).
- * - If not following → follow (create Follow doc, increment counts, send notification).
- *
- * Self-following is rejected.
+ * Không cho tự theo dõi; không theo dõi được khi một trong hai bên đã chặn người kia.
  */
+const followResult = async (res, targetId, isFollowing, message) => {
+  const fresh = await User.findById(targetId).select('followerCount').lean();
+  return success(res, { isFollowing, following: isFollowing, followerCount: Math.max(0, fresh?.followerCount ?? 0) }, 200, message);
+};
+
 exports.followUser = async (req, res) => {
+  let targetUser;
   try {
-    const { username } = req.params;
-
-    const targetUser = await User.findOne({ username });
+    targetUser = await findUserByParam(req.params.username);
     if (!targetUser) return error(res, 'User not found', 404);
+    if (targetUser._id.equals(req.user._id)) return error(res, 'You cannot follow yourself', 400);
 
-    // Prevent self-following
-    if (targetUser._id.toString() === req.user._id.toString()) {
-      return error(res, 'You cannot follow yourself', 400);
-    }
+    const existing = await Follow.exists({ followerId: req.user._id, followingId: targetUser._id });
+    if (existing) return followResult(res, targetUser._id, true, 'Already following');
 
-    const existing = await Follow.findOne({
-      followerId: req.user._id,
-      followingId: targetUser._id,
-    });
-
-    if (existing) {
-      // --- UNFOLLOW ---
-      // deleteOne trả về deletedCount: 2 request bỏ theo dõi cùng lúc thì chỉ
-      // request thực sự xoá được bản ghi mới được giảm bộ đếm (tránh đếm âm).
-      const { deletedCount } = await Follow.deleteOne({ _id: existing._id });
-      if (!deletedCount) return success(res, { following: false }, 200, `Unfollowed @${username}`);
-      FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'unfollow' }).catch(() => {});
-
-      // Không chặn "> 0" ở đây: mỗi lần xoá thành công luôn ứng với 1 lần tạo thành công (+1),
-      // nên +1/−1 luôn triệt tiêu đúng. Nếu chặn, khi lệnh −1 chạy trước lệnh +1 của request
-      // theo dõi đang song song thì −1 bị bỏ qua và bộ đếm lệch vĩnh viễn.
-      await User.updateOne({ _id: req.user._id }, { $inc: { followingCount: -1 } });
-      await User.updateOne({ _id: targetUser._id }, { $inc: { followerCount: -1 } });
-
-      return success(res, { following: false }, 200, `Unfollowed @${username}`);
-    }
-
-    // --- FOLLOW ---
     if (await privacyService.isBlockedBetween(req.user._id, targetUser._id)) {
       return error(res, 'Không thể theo dõi tài khoản này', 403);
     }
-    await Follow.create({
-      followerId: req.user._id,
-      followingId: targetUser._id,
-    });
+    await Follow.create({ followerId: req.user._id, followingId: targetUser._id });
     FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'follow' }).catch(() => {});
 
-    await User.findByIdAndUpdate(req.user._id, { $inc: { followingCount: 1 } });
-    await User.findByIdAndUpdate(targetUser._id, { $inc: { followerCount: 1 } });
+    await User.updateOne({ _id: req.user._id }, { $inc: { followingCount: 1 } });
+    await User.updateOne({ _id: targetUser._id }, { $inc: { followerCount: 1 } });
 
-    // Notify the followed user
     await notificationService.createNotification(targetUser._id, 'new_follower', {
       actorId: req.user._id,
       actorUsername: req.user.username,
       actorAvatar: req.user.avatarUrl,
     });
 
-    return success(res, { following: true }, 200, `Now following @${username}`);
+    return followResult(res, targetUser._id, true, `Now following @${targetUser.username}`);
   } catch (err) {
-    // Gracefully handle duplicate key (race condition)
-    if (err.code === 11000) {
-      return success(res, { following: true }, 200, 'Already following');
-    }
+    // 2 request theo dõi cùng lúc → bản ghi thứ hai vướng unique index
+    if (err.code === 11000 && targetUser) return followResult(res, targetUser._id, true, 'Already following');
     console.error('[followUser]', err);
     return error(res, 'Follow action failed', 500);
+  }
+};
+
+exports.unfollowUser = async (req, res) => {
+  try {
+    const targetUser = await findUserByParam(req.params.username, '_id username');
+    if (!targetUser) return error(res, 'User not found', 404);
+
+    // deleteOne trả về deletedCount: 2 request bỏ theo dõi cùng lúc thì chỉ
+    // request thực sự xoá được bản ghi mới được giảm bộ đếm (tránh đếm âm).
+    const { deletedCount } = await Follow.deleteOne({ followerId: req.user._id, followingId: targetUser._id });
+    if (deletedCount) {
+      FollowEvent.create({ followerId: req.user._id, followingId: targetUser._id, action: 'unfollow' }).catch(() => {});
+      // Không chặn "> 0": mỗi lần xoá thành công luôn ứng với 1 lần tạo thành công (+1)
+      await User.updateOne({ _id: req.user._id }, { $inc: { followingCount: -1 } });
+      await User.updateOne({ _id: targetUser._id }, { $inc: { followerCount: -1 } });
+    }
+    return followResult(res, targetUser._id, false, `Unfollowed @${targetUser.username}`);
+  } catch (err) {
+    console.error('[unfollowUser]', err);
+    return error(res, 'Unfollow action failed', 500);
   }
 };

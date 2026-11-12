@@ -2,12 +2,18 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
+import { useIsDesktop } from '../../hooks/useMedia';
 
 /**
- * variant="sheet": trượt từ dưới lên, kéo xuống để đóng (mặc định, kiểu TikTok mobile)
- * variant="center": hộp thoại giữa màn hình
+ * variant:
+ *  - "dialog": hộp thoại giữa màn hình (mọi kích thước)
+ *  - "sheet":  mobile trượt từ dưới lên (kéo xuống để đóng); desktop thành dialog
+ *  - "drawer": mobile như sheet; desktop là panel bên phải (bình luận, chọn ngôn ngữ)
  */
-export default function Modal({ open, onClose, title, variant = 'sheet', children, className = '' }) {
+export default function Modal({ open, onClose, title, variant = 'sheet', width = 440, footer, children }) {
+  const desktop = useIsDesktop();
+  const kind = variant === 'dialog' || (desktop && variant === 'sheet') ? 'dialog' : desktop ? 'drawer' : 'sheet';
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === 'Escape' && onClose();
@@ -15,42 +21,38 @@ export default function Modal({ open, onClose, title, variant = 'sheet', childre
     return () => removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const sheet = variant === 'sheet';
+  const panel = {
+    dialog: { cls: 'm-auto max-h-[86dvh] rounded-xl', style: { width: `min(${width}px, calc(100vw - 32px))` },
+      motion: { initial: { opacity: 0, scale: 0.97, y: 8 }, animate: { opacity: 1, scale: 1, y: 0 }, exit: { opacity: 0, scale: 0.98 } } },
+    drawer: { cls: 'ml-auto h-full w-[420px] border-l', style: {},
+      motion: { initial: { x: '100%' }, animate: { x: 0 }, exit: { x: '100%' } } },
+    sheet: { cls: 'mt-auto max-h-[82dvh] w-full rounded-t-xl pb-[env(safe-area-inset-bottom)]', style: {},
+      motion: { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' } } },
+  }[kind];
+
   return createPortal(
     <AnimatePresence>
       {open && (
-        <motion.div className={`fixed inset-0 z-50 flex justify-center ${sheet ? 'items-end' : 'items-center'}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+        <motion.div className="fixed inset-0 z-50 flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+          <div className="absolute inset-0 bg-black/50" onClick={onClose} />
           <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            className={
-              sheet
-                ? `relative flex max-h-[78dvh] w-full max-w-[520px] flex-col rounded-t-[28px] border border-b-0 border-ink-600 bg-ink-800 pb-[env(safe-area-inset-bottom)] ${className}`
-                : `relative flex max-h-[86dvh] w-[min(92vw,460px)] flex-col rounded-[28px] border border-ink-600 bg-ink-800 ${className}`
-            }
-            initial={sheet ? { y: '100%' } : { scale: 0.92, opacity: 0 }}
-            animate={sheet ? { y: 0 } : { scale: 1, opacity: 1 }}
-            exit={sheet ? { y: '100%' } : { scale: 0.95, opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            drag={sheet ? 'y' : false}
+            role="dialog" aria-modal="true" aria-label={title}
+            className={`relative flex flex-col border-line bg-surface text-fg shadow-pop ${panel.cls}`}
+            style={panel.style}
+            {...panel.motion}
+            transition={{ type: 'tween', duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            drag={kind === 'sheet' ? 'y' : false}
             dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.6 }}
-            onDragEnd={(_, i) => (i.offset.y > 120 || i.velocity.y > 600) && onClose()}
+            dragElastic={{ top: 0, bottom: 0.5 }}
+            onDragEnd={(_, i) => (i.offset.y > 110 || i.velocity.y > 600) && onClose()}
           >
-            {sheet && <div className="mx-auto mt-3 h-1 w-10 shrink-0 cursor-grab rounded-full bg-ink-500" />}
-            <div className="flex shrink-0 items-center justify-between px-5 pb-2 pt-3">
-              <h3 className="text-xl font-extrabold">{title}</h3>
-              <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full hover:bg-ink-600" aria-label="Đóng">
-                <X size={20} />
-              </button>
-            </div>
-            {/* Chặn ở pha bubble (không phải capture) để phần tử con (VD khung cắt ảnh) vẫn nhận được
-                pointerdown, nhưng sự kiện không lan lên làm kéo/đóng sheet */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5" onPointerDown={(e) => e.stopPropagation()}>
-              {children}
-            </div>
+            {kind === 'sheet' && <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-surface-3" />}
+            <header className="flex h-14 shrink-0 items-center justify-between border-b border-line pl-5 pr-3">
+              <h2 className="text-md font-bold">{title}</h2>
+              <button onClick={onClose} className="icon-btn" aria-label="Đóng"><X size={20} /></button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto" onPointerDownCapture={(e) => kind === 'sheet' && e.stopPropagation()}>{children}</div>
+            {footer && <footer className="shrink-0 border-t border-line px-5 py-3">{footer}</footer>}
           </motion.div>
         </motion.div>
       )}

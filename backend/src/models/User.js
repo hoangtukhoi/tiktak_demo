@@ -31,6 +31,8 @@ const userSchema = new mongoose.Schema(
     bannedAt: { type: Date, default: null },
     banReason: { type: String, default: null },
     lastLoginAt: { type: Date, default: null },
+    // Lần hoạt động gần nhất (request đã đăng nhập / kết nối realtime) — xem services/presence.service.js
+    lastActiveAt: { type: Date, default: null },
     refreshTokens: [{ type: String, select: false }], // lưu refresh tokens hợp lệ
 
     // ── Quyền riêng tư (xem services/privacy.service.js) ─────────────────

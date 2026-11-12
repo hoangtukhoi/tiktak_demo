@@ -7,17 +7,18 @@ import { formatCount } from '../../utils/format';
  * Quy ước: nét 2px, lưới mảnh 1px, đầu cột bo 4px, vùng tô 10% độ đậm,
  * chữ luôn dùng màu chữ (không dùng màu dữ liệu), có tooltip khi rê chuột.
  *
- * Màu: 1 chuỗi → lime (màu thương hiệu); nhiều chuỗi → bảng màu đã kiểm tra
+ * Màu: 1 chuỗi → màu thương hiệu (son); nhiều chuỗi → bảng màu đã kiểm tra
  * khả năng phân biệt cho người mù màu trên nền tối.
  */
+// Lấy từ CSS variable của theme (src/index.css) → tự đổi theo chế độ sáng / tối
 export const COLORS = {
-  primary: '#d9ff3f',
+  primary: 'rgb(var(--brand))',
   series: ['#3987e5', '#d95926', '#199e70', '#c98500'], // xanh, cam, ngọc, vàng (thứ tự cố định)
-  surface: '#151412', // ink-800 — nền card
-  grid: '#2c2a25',
-  axis: '#6f695f', // paper-mute
-  text: '#f4efe6',
-  textDim: '#a39c8f',
+  surface: 'rgb(var(--surface))',
+  grid: 'rgb(var(--line))',
+  axis: 'rgb(var(--fg-subtle))',
+  text: 'rgb(var(--fg))',
+  textDim: 'rgb(var(--fg-muted))',
 };
 
 // ── Tiện ích ────────────────────────────────────────────────────────────────
@@ -78,23 +79,23 @@ export function StatTile({ label, metric, format = fmtNumber, hint, invert = fal
     <div className="card p-5">
       {/* text-balance: nhãn dài xuống dòng cân 2 dòng (VD "Người dùng / hoạt động") thay vì để 1 chữ lẻ */}
       <p className="label text-balance">{label}</p>
-      <p className="mt-3 font-mono text-3xl font-bold tracking-tighter sm:text-4xl">{metric ? format(metric.value) : <span className="skeleton inline-block h-9 w-24 rounded-lg" />}</p>
+      <p className="mt-3 tabular text-3xl font-bold tracking-tighter sm:text-4xl">{metric ? format(metric.value) : <span className="skeleton inline-block h-9 w-24 rounded-lg" />}</p>
       <div className="mt-2 flex min-h-[20px] items-center gap-1.5 text-xs">
-        {metric && change === null && metric.value > 0 && <span className="font-semibold text-paper-dim">Mới trong kỳ này</span>}
+        {metric && change === null && metric.value > 0 && <span className="font-semibold text-fg-muted">Mới trong kỳ này</span>}
         {metric && change !== null && change !== undefined && (
           <>
             <span
-              className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono font-bold"
-              style={{ background: good === null ? '#262420' : good ? 'rgba(12,163,12,.16)' : 'rgba(208,59,59,.18)', color: COLORS.text }}
+              className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 tabular font-bold"
+              style={{ background: good === null ? 'rgb(var(--surface-3))' : good ? 'rgb(var(--success) / .14)' : 'rgb(var(--danger) / .14)', color: COLORS.text }}
             >
-              <Icon size={13} style={{ color: good === null ? COLORS.textDim : good ? '#0ca30c' : '#e66767' }} />
+              <Icon size={13} style={{ color: good === null ? COLORS.textDim : good ? 'rgb(var(--success))' : 'rgb(var(--danger))' }} />
               {flat ? '0%' : `${up ? '+' : ''}${change.toLocaleString('vi-VN')}%`}
             </span>
-            <span className="text-paper-mute">so với kỳ trước</span>
+            <span className="text-fg-subtle">so với kỳ trước</span>
           </>
         )}
       </div>
-      {hint && <p className="mt-1 text-xs text-paper-mute">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-fg-subtle">{hint}</p>}
     </div>
   );
 }
@@ -154,7 +155,7 @@ export function LineChart({ data, series, height = 240, yFormat = fmtNumber, xFo
       {multi && (
         <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1">
           {series.map((s, i) => (
-            <span key={s.key} className="inline-flex items-center gap-2 text-xs font-semibold text-paper-dim">
+            <span key={s.key} className="inline-flex items-center gap-2 text-xs font-semibold text-fg-muted">
               <span className="h-[3px] w-4 rounded-full" style={{ background: colorOf(s, i) }} />
               {s.label}
             </span>
@@ -216,18 +217,18 @@ export function LineChart({ data, series, height = 240, yFormat = fmtNumber, xFo
       )}
       {hover !== null && width > 0 && (
         <div
-          className="pointer-events-none absolute z-10 min-w-[140px] rounded-xl border border-ink-500 bg-ink-900/95 px-3 py-2 text-xs shadow-xl"
+          className="pointer-events-none absolute z-10 min-w-[140px] rounded-xl border border-line bg-bg/95 px-3 py-2 text-xs shadow-xl"
           // tooltip đặt bên phải điểm đang rê, lật sang trái khi gần mép phải
           style={{ top: multi ? 28 : 0, left: x(hover) > W / 2 ? Math.max(0, x(hover) - 172) : x(hover) + 12 }}
         >
-          <p className="mb-1 font-semibold text-paper-dim">{tooltipTitle(data[hover].date ?? data[hover].x)}</p>
+          <p className="mb-1 font-semibold text-fg-muted">{tooltipTitle(data[hover].date ?? data[hover].x)}</p>
           {series.map((s, si) => (
             <p key={s.key} className="flex items-center justify-between gap-4">
-              <span className="inline-flex items-center gap-1.5 text-paper-dim">
+              <span className="inline-flex items-center gap-1.5 text-fg-muted">
                 <span className="h-2 w-2 rounded-full" style={{ background: colorOf(s, si) }} />
                 {s.label}
               </span>
-              <span className="font-mono font-bold text-paper">{data[hover][s.key] === null || data[hover][s.key] === undefined ? '—' : `${yFormat(data[hover][s.key] || 0)}${ySuffix}`}</span>
+              <span className="tabular font-bold text-fg">{data[hover][s.key] === null || data[hover][s.key] === undefined ? '—' : `${yFormat(data[hover][s.key] || 0)}${ySuffix}`}</span>
             </p>
           ))}
         </div>
@@ -283,19 +284,19 @@ export function ColumnChart({ data, height = 180, format = fmtNumber }) {
 /** items: [{ label, value, sub? }] */
 export function BarList({ items, format = fmtNumber, color = COLORS.primary, empty = 'Chưa có dữ liệu' }) {
   const max = Math.max(1, ...items.map((i) => i.value));
-  if (!items.length || items.every((i) => !i.value)) return <p className="py-6 text-center text-sm text-paper-mute">{empty}</p>;
+  if (!items.length || items.every((i) => !i.value)) return <p className="py-6 text-center text-sm text-fg-subtle">{empty}</p>;
   return (
     <ul className="space-y-3">
       {items.map((it) => (
         <li key={it.label} title={`${it.label}: ${format(it.value)}${it.sub ? ` · ${it.sub}` : ''}`}>
           <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate font-semibold">{it.label}</span>
-            <span className="shrink-0 font-mono text-xs text-paper-dim">
-              <span className="font-bold text-paper">{format(it.value)}</span>
+            <span className="shrink-0 tabular text-xs text-fg-muted">
+              <span className="font-bold text-fg">{format(it.value)}</span>
               {it.sub && <span className="ml-1.5">{it.sub}</span>}
             </span>
           </div>
-          <div className="h-2 w-full rounded-full" style={{ background: '#262420' }}>
+          <div className="h-2 w-full rounded-full" style={{ background: 'rgb(var(--surface-3))' }}>
             <div className="h-2 rounded-full" style={{ width: `${Math.max(it.value ? 2 : 0, (it.value / max) * 100)}%`, background: color }} />
           </div>
         </li>
@@ -318,7 +319,7 @@ export function Heatmap({ grid }) {
           <div className="grid gap-[3px]" style={{ gridTemplateColumns: '28px repeat(24, minmax(0, 1fr))' }}>
             <span />
             {Array.from({ length: 24 }, (_, h) => (
-              <span key={h} className="text-center font-mono text-[9px] text-paper-mute">{h % 3 === 0 ? h : ''}</span>
+              <span key={h} className="text-center tabular text-[9px] text-fg-subtle">{h % 3 === 0 ? h : ''}</span>
             ))}
             {grid.map((row, d) => (
               <Row key={d} d={d} row={row} level={level} setHover={setHover} />
@@ -326,16 +327,16 @@ export function Heatmap({ grid }) {
           </div>
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-paper-mute">
+      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-fg-subtle">
         <span className="min-h-[16px]">
           {hover ? (
-            <span className="text-paper"><b className="font-mono">{fmtNumber(hover.v)}</b> lượt xem · {WEEKDAYS_FULL[hover.d]}, {hover.h}:00–{hover.h + 1}:00</span>
+            <span className="text-fg"><b className="tabular">{fmtNumber(hover.v)}</b> lượt xem · {WEEKDAYS_FULL[hover.d]}, {hover.h}:00–{hover.h + 1}:00</span>
           ) : 'Rê chuột lên ô để xem chi tiết'}
         </span>
         <span className="flex items-center gap-1.5">
           Ít
           {[0, 0.25, 0.5, 0.75, 1].map((l) => (
-            <span key={l} className="h-3 w-3 rounded-[3px]" style={{ background: l === 0 ? '#211f1b' : COLORS.primary, opacity: l === 0 ? 1 : 0.18 + 0.82 * l }} />
+            <span key={l} className="h-3 w-3 rounded-[3px]" style={{ background: l === 0 ? 'rgb(var(--surface-2))' : COLORS.primary, opacity: l === 0 ? 1 : 0.18 + 0.82 * l }} />
           ))}
           Nhiều
         </span>
@@ -347,12 +348,12 @@ export function Heatmap({ grid }) {
 function Row({ d, row, level, setHover }) {
   return (
     <>
-      <span className="self-center font-mono text-[10px] text-paper-mute">{WEEKDAYS[d]}</span>
+      <span className="self-center tabular text-[10px] text-fg-subtle">{WEEKDAYS[d]}</span>
       {row.map((v, h) => (
         <span
           key={h}
           className="aspect-square rounded-[3px]"
-          style={{ background: v === 0 ? '#211f1b' : COLORS.primary, opacity: v === 0 ? 1 : level(v) }}
+          style={{ background: v === 0 ? 'rgb(var(--surface-2))' : COLORS.primary, opacity: v === 0 ? 1 : level(v) }}
           onPointerEnter={() => setHover({ d, h, v })}
           onPointerLeave={() => setHover(null)}
           title={`${WEEKDAYS_FULL[d]} ${h}:00 — ${v} lượt xem`}
@@ -366,14 +367,14 @@ function Row({ d, row, level, setHover }) {
 
 export function RangeTabs({ value, onChange, options }) {
   return (
-    <div className="flex gap-1 rounded-full bg-ink-800 p-1" role="tablist" aria-label="Khoảng thời gian">
+    <div className="flex gap-1 rounded-full bg-surface p-1" role="tablist" aria-label="Khoảng thời gian">
       {options.map(([v, label]) => (
         <button
           key={v}
           role="tab"
           aria-selected={value === v}
           onClick={() => onChange(v)}
-          className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${value === v ? 'bg-lime text-ink' : 'text-paper-dim hover:text-paper'}`}
+          className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${value === v ? 'bg-brand text-white' : 'text-fg-muted hover:text-fg'}`}
         >
           {label}
         </button>
@@ -389,15 +390,15 @@ export function Panel({ title, subtitle, action, children, className = '', table
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-extrabold">{title}</h3>
-          {subtitle && <p className="mt-0.5 text-sm text-paper-dim">{subtitle}</p>}
+          {subtitle && <p className="mt-0.5 text-sm text-fg-muted">{subtitle}</p>}
         </div>
         {action}
       </div>
       {children}
       {table && (
         <details className="mt-4 text-sm">
-          <summary className="cursor-pointer select-none text-xs font-semibold text-paper-mute hover:text-paper">Xem dạng bảng</summary>
-          <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-ink-600">{table}</div>
+          <summary className="cursor-pointer select-none text-xs font-semibold text-fg-subtle hover:text-fg">Xem dạng bảng</summary>
+          <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-line">{table}</div>
         </details>
       )}
     </section>
@@ -408,13 +409,13 @@ export function Panel({ title, subtitle, action, children, className = '', table
 export function DataTable({ columns, rows }) {
   return (
     <table className="w-full text-xs">
-      <thead className="sticky top-0 bg-ink-700">
-        <tr>{columns.map((c) => <th key={c.key} className={`px-3 py-2 font-mono font-bold text-paper-dim ${c.align === 'right' ? 'text-right' : 'text-left'}`}>{c.label}</th>)}</tr>
+      <thead className="sticky top-0 bg-surface-2">
+        <tr>{columns.map((c) => <th key={c.key} className={`px-3 py-2 tabular font-bold text-fg-muted ${c.align === 'right' ? 'text-right' : 'text-left'}`}>{c.label}</th>)}</tr>
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={i} className="border-t border-ink-700">
-            {columns.map((c) => <td key={c.key} className={`px-3 py-1.5 ${c.align === 'right' ? 'text-right font-mono' : ''}`}>{c.format ? c.format(r[c.key], r) : r[c.key]}</td>)}
+          <tr key={i} className="border-t border-line">
+            {columns.map((c) => <td key={c.key} className={`px-3 py-1.5 ${c.align === 'right' ? 'text-right tabular' : ''}`}>{c.format ? c.format(r[c.key], r) : r[c.key]}</td>)}
           </tr>
         ))}
       </tbody>
@@ -423,23 +424,23 @@ export function DataTable({ columns, rows }) {
 }
 
 export function EmptyNote({ children }) {
-  return <div className="rounded-2xl border border-dashed border-ink-500 px-4 py-3 text-sm text-paper-dim">{children}</div>;
+  return <div className="rounded-2xl border border-dashed border-line px-4 py-3 text-sm text-fg-muted">{children}</div>;
 }
 
 // ── Thẻ số liệu bấm được (chọn chỉ số cho biểu đồ bên dưới) ────────────────
 
 /** Định dạng thay đổi: "▼ −3 (−37,5%)" — mũi tên + dấu, không chỉ dựa vào màu */
 export function DeltaText({ metric, format = fmtNumber, invert = false }) {
-  if (!metric || metric.delta === undefined || metric.delta === null) return <span className="text-paper-mute">—</span>;
+  if (!metric || metric.delta === undefined || metric.delta === null) return <span className="text-fg-subtle">—</span>;
   const { delta, change } = metric;
-  if (delta === 0) return <span className="text-paper-mute">0 (0%)</span>;
+  if (delta === 0) return <span className="text-fg-subtle">0 (0%)</span>;
   const up = delta > 0;
   const good = invert ? !up : up;
   const Icon = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <span className="inline-flex items-center gap-1" style={{ color: good ? '#6fd36f' : '#ef8a8a' }}>
+    <span className="inline-flex items-center gap-1" style={{ color: good ? 'rgb(var(--success))' : 'rgb(var(--danger))' }}>
       <Icon size={14} aria-hidden />
-      <span className="font-mono">
+      <span className="tabular">
         {up ? '+' : '−'}{format(Math.abs(delta))}
         {change !== null && change !== undefined ? ` (${up ? '+' : '−'}${Math.abs(change).toLocaleString('vi-VN')}%)` : ' (mới)'}
       </span>
@@ -465,14 +466,14 @@ export function MetricCards({ items, selected, onSelect, cols = 'grid-cols-2' })
             aria-selected={active}
             onClick={() => onSelect?.(it.key)}
             disabled={!onSelect}
-            className={`rounded-2xl border p-4 text-left transition ${active ? 'border-lime bg-lime/[0.07]' : 'border-ink-600 bg-ink-800 hover:border-ink-500'} ${onSelect ? '' : 'cursor-default'}`}
+            className={`rounded-2xl border p-4 text-left transition ${active ? 'border-brand bg-brand/[0.07]' : 'border-line bg-surface hover:border-line'} ${onSelect ? '' : 'cursor-default'}`}
           >
-            <p className="text-sm font-semibold text-paper-dim">{it.label}</p>
-            <p className="mt-2 font-mono text-3xl font-bold tracking-tighter">
+            <p className="text-sm font-semibold text-fg-muted">{it.label}</p>
+            <p className="mt-2 tabular text-3xl font-bold tracking-tighter">
               {it.metric ? fmt(it.metric.value) : <span className="skeleton inline-block h-8 w-16 rounded-lg" />}
             </p>
             <p className="mt-2 min-h-[18px] text-xs">
-              {it.hint ? <span className="text-paper-mute">{it.hint}</span> : it.metric && <DeltaText metric={it.metric} format={fmt} invert={it.invert} />}
+              {it.hint ? <span className="text-fg-subtle">{it.hint}</span> : it.metric && <DeltaText metric={it.metric} format={fmt} invert={it.invert} />}
             </p>
           </button>
         );
@@ -527,11 +528,11 @@ export function BarChart({ data, height = 200, format = fmtNumber, showValues = 
       )}
       {hover !== null && width > 0 && (
         <div
-          className="pointer-events-none absolute top-0 z-10 rounded-xl border border-ink-500 bg-ink-900/95 px-3 py-1.5 text-xs shadow-xl"
+          className="pointer-events-none absolute top-0 z-10 rounded-xl border border-line bg-bg/95 px-3 py-1.5 text-xs shadow-xl"
           style={{ left: Math.min(Math.max(pad.l + band * hover + band / 2 - 50, 0), W - 110) }}
         >
-          <p className="text-paper-dim">{data[hover].tip || data[hover].label}</p>
-          <p className="font-mono font-bold text-paper">{format(data[hover].value)}{unit}</p>
+          <p className="text-fg-muted">{data[hover].tip || data[hover].label}</p>
+          <p className="tabular font-bold text-fg">{format(data[hover].value)}{unit}</p>
         </div>
       )}
     </div>

@@ -56,7 +56,7 @@ function Choice({ value, options, onChange, disabled }) {
           aria-checked={value === v}
           disabled={disabled}
           onClick={() => value !== v && onChange(v)}
-          className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${value === v ? 'bg-lime text-ink' : 'bg-ink-700 text-paper-dim hover:text-paper'}`}
+          className={`chip ${value === v ? 'chip-active' : ''}`}
         >
           {label}
         </button>
@@ -73,9 +73,9 @@ function Toggle({ checked, onChange, disabled, label }) {
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${checked ? 'bg-lime' : 'bg-ink-500'}`}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60 ${checked ? 'bg-brand' : 'bg-surface-3'}`}
     >
-      <motion.span layout transition={{ type: 'spring', damping: 24, stiffness: 400 }} className={`absolute top-1 h-5 w-5 rounded-full bg-ink ${checked ? 'right-1' : 'left-1'}`} />
+      <motion.span layout transition={{ type: 'spring', damping: 24, stiffness: 400 }} className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow ${checked ? 'right-0.5' : 'left-0.5'}`} />
     </button>
   );
 }
@@ -115,33 +115,28 @@ export default function PrivacySettings() {
   };
 
   return (
-    <div className="mx-auto max-w-[760px] px-4 pb-16 pt-6 sm:px-8">
-      <button onClick={() => (history.length > 1 ? navigate(-1) : navigate(`/profile/${user?.username}`))} className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-paper-dim hover:text-paper">
-        <ArrowLeft size={16} /> Quay lại
-      </button>
-      <header className="mb-8 flex items-center gap-4">
-        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-lime text-ink"><Shield size={26} /></span>
-        <div>
-          <p className="label">Cài đặt</p>
-          <h1 className="mt-1 text-4xl font-extrabold">Quyền riêng tư</h1>
-        </div>
+    <div className="mx-auto max-w-[720px] px-4 pb-16 pt-6 lg:px-8 lg:pt-10">
+      <header className="mb-6 hidden items-center gap-3 lg:flex">
+        <button onClick={() => (history.length > 1 ? navigate(-1) : navigate(`/profile/${user?.username}`))} className="icon-btn" aria-label="Quay lại"><ArrowLeft size={20} /></button>
+        <Shield size={22} className="text-brand-text" />
+        <h1 className="text-2xl font-bold">Quyền riêng tư</h1>
       </header>
 
       {SECTIONS.map((sec) => (
-        <section key={sec.title} className="mb-8">
-          <h2 className="label mb-3">{sec.title}</h2>
-          <div className="card divide-y divide-ink-700">
+        <section key={sec.title} className="mb-7">
+          <h2 className="mb-2 text-sm font-semibold text-fg-muted">{sec.title}</h2>
+          <div className="card divide-y divide-line">
             {sec.items.map(({ key, icon: Icon, label, hint, type, options }) => (
               <div key={key} className={`flex gap-4 p-4 sm:p-5 ${type === 'toggle' ? 'items-center' : 'flex-col sm:flex-row sm:items-center'}`}>
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <Icon size={20} className="mt-0.5 shrink-0 text-paper-dim" />
+                  <Icon size={20} className="mt-0.5 shrink-0 text-fg-muted" />
                   <div className="min-w-0">
-                    <p className="font-bold">{label}</p>
-                    {hint && <p className="mt-0.5 text-sm text-paper-mute">{hint}</p>}
+                    <p className="font-semibold">{label}</p>
+                    {hint && <p className="mt-0.5 text-sm text-fg-subtle">{hint}</p>}
                   </div>
                 </div>
                 {settings === null ? (
-                  <span className="skeleton h-8 w-48 rounded-full" />
+                  <span className="skeleton h-8 w-48 rounded" />
                 ) : type === 'toggle' ? (
                   <Toggle label={label} checked={settings[key]} disabled={saving === key} onChange={(v) => change(key, v)} />
                 ) : (
@@ -153,30 +148,30 @@ export default function PrivacySettings() {
         </section>
       ))}
 
-      <p className="-mt-4 mb-8 flex items-start gap-2 text-sm text-paper-mute">
+      <p className="-mt-4 mb-8 flex items-start gap-2 text-sm text-fg-subtle">
         <Eye size={16} className="mt-0.5 shrink-0" />
         "Bạn bè" là những người bạn theo dõi và họ cũng theo dõi bạn. Mục bị ẩn vẫn hiện con số, nhưng người khác không mở xem được.
       </p>
 
       <section>
-        <h2 className="label mb-3">Tài khoản đã chặn {blocked?.length ? `· ${blocked.length}` : ''}</h2>
+        <h2 className="mb-2 text-sm font-semibold text-fg-muted">Tài khoản đã chặn {blocked?.length ? `· ${blocked.length}` : ''}</h2>
         <div className="card">
           {blocked === null ? (
-            <div className="p-5"><span className="skeleton block h-10 rounded-xl" /></div>
+            <div className="p-5"><span className="skeleton block h-10 rounded" /></div>
           ) : !blocked.length ? (
-            <p className="flex items-center gap-2 p-5 text-sm text-paper-dim"><Ban size={16} /> Bạn chưa chặn ai. Chặn một người từ nút “⋯” trên hồ sơ của họ.</p>
+            <p className="flex items-center gap-2 p-5 text-sm text-fg-muted"><Ban size={16} /> Bạn chưa chặn ai. Chặn một người từ nút “⋯” trên hồ sơ của họ.</p>
           ) : (
-            <ul className="divide-y divide-ink-700">
+            <ul className="divide-y divide-line">
               {blocked.map((u) => (
                 <li key={u._id} className="flex items-center gap-3 p-4">
                   <Link to={`/profile/${u.username}`} className="flex min-w-0 flex-1 items-center gap-3">
                     <Avatar user={u} size={40} />
                     <span className="min-w-0">
-                      <span className="block truncate font-bold">{u.displayName || u.username}</span>
-                      <span className="block truncate font-mono text-[11px] text-paper-mute">@{u.username} · chặn {timeAgo(u.blockedAt)}</span>
+                      <span className="block truncate font-semibold">{u.displayName || u.username}</span>
+                      <span className="block truncate tabular text-[11px] text-fg-subtle">@{u.username} · chặn {timeAgo(u.blockedAt)}</span>
                     </span>
                   </Link>
-                  <button onClick={() => unblock(u)} className="btn-ghost !px-4 !py-1.5 text-sm">Bỏ chặn</button>
+                  <button onClick={() => unblock(u)} className="btn-secondary btn-sm">Bỏ chặn</button>
                 </li>
               ))}
             </ul>

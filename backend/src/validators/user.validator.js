@@ -100,3 +100,15 @@ exports.normalizeLinks = (links = {}) => {
 };
 
 exports.RESERVED_USERNAMES = RESERVED_USERNAMES;
+
+// Đổi mật khẩu. currentPassword bỏ trống được với tài khoản Google chưa từng đặt mật khẩu
+exports.changePasswordSchema = Joi.object({
+  currentPassword: Joi.string().allow('').max(128),
+  newPassword: Joi.string().min(6).max(128).required().invalid(Joi.ref('currentPassword')).messages({
+    'string.min': 'Mật khẩu mới phải có ít nhất 6 ký tự',
+    'string.max': 'Mật khẩu mới tối đa 128 ký tự',
+    'any.required': 'Vui lòng nhập mật khẩu mới',
+    'string.empty': 'Vui lòng nhập mật khẩu mới',
+    'any.invalid': 'Mật khẩu mới phải khác mật khẩu hiện tại',
+  }),
+});

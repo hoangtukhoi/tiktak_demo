@@ -43,5 +43,8 @@ export default function useAuth() {
     return false;
   };
 
-  return { user, isAuthenticated, isAdmin: user?.role === 'admin', signIn, signUp, signInWithGoogleCode, signOut, requireAuth, setUser };
+  // isAdmin: quản trị (không có hồ sơ cá nhân). isStaff: admin + kiểm duyệt viên (vào được trang kiểm duyệt).
+  const isAdmin = user?.role === 'admin';
+  const isStaff = isAdmin || user?.role === 'moderator';
+  return { user, isAuthenticated, isAdmin, isStaff, isModerator: user?.role === 'moderator', signIn, signUp, signInWithGoogleCode, signOut, requireAuth, setUser };
 }
